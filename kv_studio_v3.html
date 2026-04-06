@@ -474,6 +474,37 @@ label {
 .ver-tab:hover { border-color: var(--border2); color: var(--text2); }
 .ver-tab.active { border-color: var(--accent-border); background: var(--accent-dim); color: var(--accent2); }
 .ver-tab.confirmed { border-color: rgba(52,211,153,0.4); color: var(--ok); }
+.ver-tab.pdf-checked { border-color: rgba(251,191,36,0.5); background: rgba(251,191,36,0.08); }
+
+.ver-tab-cb {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--warn);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* ─── 다중 선택 액션바 ─── */
+.multi-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(251,191,36,0.08);
+  border: 1px solid rgba(251,191,36,0.3);
+  border-radius: var(--radius-sm);
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.multi-action-bar .label {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--warn);
+  letter-spacing: 0.04em;
+  flex: 1;
+  text-transform: none;
+  margin: 0;
+}
 
 /* ─── 가이드라인 JSON 뷰어 ─── */
 .guideline-viewer { display: flex; flex-direction: column; gap: 8px; }
@@ -2787,15 +2818,18 @@ function renderStep2() {
       </div>
     </div>
 
-    <!-- 버전 탭 -->
+    <!-- 버전 탭 (체크박스 포함) -->
     <div class="ver-tab-bar">
       ${versions.map(ver => {
         const isActive = ver.id === AppState.activeVersionId;
         const isConfirmed = ver.id === AppState.selectedVersionId;
+        const isPdfSel = ver.selectedForPdf;
         const verDone = ver.guideItems.filter(i => i.status === 'done').length;
         return `
-          <div class="ver-tab ${isActive ? 'active' : ''} ${isConfirmed ? 'confirmed' : ''}"
+          <div class="ver-tab ${isActive ? 'active' : ''} ${isConfirmed ? 'confirmed' : ''} ${isPdfSel ? 'pdf-checked' : ''}"
             data-activate-version="${ver.id}">
+            <input type="checkbox" class="ver-tab-cb" data-pdf-select-version="${ver.id}"
+              ${isPdfSel ? 'checked' : ''} title="PDF 선택">
             ${escapeHtml(ver.label)}
             ${ver.starred ? '<span style="color:var(--warn)">★</span>' : ''}
             ${isConfirmed ? '<span style="color:var(--ok)">✓</span>' : ''}
@@ -2804,6 +2838,20 @@ function renderStep2() {
         `;
       }).join('')}
     </div>
+
+    <!-- 다중 선택 액션바 -->
+    ${pdfSelectedIds.length > 0 ? `
+      <div class="multi-action-bar">
+        <span class="label">☑ ${pdfSelectedIds.length}개 버전 선택됨</span>
+        <button class="btn btn-sm" style="background:var(--warn)" id="pdfExportBtn">
+          📄 PDF 내보내기 (${pdfSelectedIds.length}개)
+        </button>
+        <button class="btn btn-ghost btn-sm" id="genAllSelectedBtn" ${AppState.isProcessing ? 'disabled' : ''}>
+          🖼 선택 버전 전체 생성
+        </button>
+        <button class="btn btn-ghost btn-sm" id="clearPdfSelBtn">✕ 선택 초기화</button>
+      </div>
+    ` : ''}
 
     <div style="display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start">
       <!-- 메인: 가이드 카드 -->
@@ -2827,15 +2875,6 @@ function renderStep2() {
 
       <!-- 우측: 갤러리 비교 + 로그 -->
       <div style="display:flex;flex-direction:column;gap:16px">
-        <!-- PDF 선택 버튼 -->
-        ${pdfSelectedIds.length > 0 ? `
-          <div style="display:flex;gap:8px;align-items:center">
-            <button class="btn" style="background:var(--warn);flex:1" id="pdfExportBtn">
-              📄 선택 버전 PDF (${pdfSelectedIds.length}개)
-            </button>
-            <button class="btn btn-ghost btn-sm" id="clearPdfSelBtn">초기화</button>
-          </div>
-        ` : ''}
 
         <!-- 갤러리 비교 뷰 -->
         <div class="gallery-panel">
@@ -2906,10 +2945,6 @@ function renderGalleryVerCard(ver) {
         </button>
         <button class="btn btn-sm ${isConfirmed ? 'btn-ok' : 'btn-ghost'}" data-select-version="${ver.id}">
           ${isConfirmed ? '✓ 확정' : 'Step3 확정'}
-        </button>
-        <button class="btn btn-sm ${isPdfSel ? '' : 'btn-ghost'}" style="${isPdfSel ? 'background:var(--warn)' : ''}"
-          data-pdf-select-version="${ver.id}" title="PDF 내보내기용 선택">
-          📄 ${isPdfSel ? 'PDF 선택됨' : 'PDF 선택'}
         </button>
       </div>
     </div>
@@ -3329,12 +3364,18 @@ function bindEvents() {
     });
   });
 
-  // 버전 PDF 선택
-  document.querySelectorAll('[data-pdf-select-version]').forEach(btn => {
-    btn.addEventListener('click', e => {
+  // 버전 PDF 선택 (탭 체크박스 + 갤러리 버튼 공용)
+  document.querySelectorAll('[data-pdf-select-version]').forEach(el => {
+    el.addEventListener('click', e => {
       e.stopPropagation();
-      toggleVersionPdfSelect(btn.dataset.pdfSelectVersion);
+      toggleVersionPdfSelect(el.dataset.pdfSelectVersion);
     });
+    // input[type=checkbox]는 change 이벤트도 처리
+    if (el.tagName === 'INPUT') {
+      el.addEventListener('change', e => {
+        e.stopPropagation();
+      });
+    }
   });
 
   // PDF 내보내기 버튼
@@ -3347,6 +3388,15 @@ function bindEvents() {
   document.getElementById('clearPdfSelBtn')?.addEventListener('click', () => {
     AppState.versions.forEach(v => v.selectedForPdf = false);
     render();
+  });
+
+  // 선택된 버전 전체 가이드 생성
+  document.getElementById('genAllSelectedBtn')?.addEventListener('click', async () => {
+    const selected = AppState.versions.filter(v => v.selectedForPdf);
+    if (!selected.length) return;
+    for (const ver of selected) {
+      await generateAllGuideItems(ver.id);
+    }
   });
 
   // 가이드라인 섹션 토글

@@ -2818,7 +2818,7 @@ function renderStep2() {
       </div>
     </div>
 
-    <!-- 버전 탭 (체크박스 포함) -->
+    <!-- 버전 탭 (클릭 전체 = 체크박스 on/off) -->
     <div class="ver-tab-bar">
       ${versions.map(ver => {
         const isActive = ver.id === AppState.activeVersionId;
@@ -2827,9 +2827,8 @@ function renderStep2() {
         const verDone = ver.guideItems.filter(i => i.status === 'done').length;
         return `
           <div class="ver-tab ${isActive ? 'active' : ''} ${isConfirmed ? 'confirmed' : ''} ${isPdfSel ? 'pdf-checked' : ''}"
-            data-activate-version="${ver.id}">
-            <input type="checkbox" class="ver-tab-cb" data-pdf-select-version="${ver.id}"
-              ${isPdfSel ? 'checked' : ''} title="PDF 선택">
+            data-ver-toggle="${ver.id}">
+            <span style="font-size:12px;opacity:${isPdfSel ? '1' : '0.25'}">${isPdfSel ? '☑' : '☐'}</span>
             ${escapeHtml(ver.label)}
             ${ver.starred ? '<span style="color:var(--warn)">★</span>' : ''}
             ${isConfirmed ? '<span style="color:var(--ok)">✓</span>' : ''}
@@ -3364,18 +3363,21 @@ function bindEvents() {
     });
   });
 
-  // 버전 PDF 선택 (탭 체크박스 + 갤러리 버튼 공용)
+  // 버전 탭 전체 클릭 = PDF 선택 on/off + 활성 버전 전환
+  document.querySelectorAll('[data-ver-toggle]').forEach(el => {
+    el.addEventListener('click', () => {
+      const verId = el.dataset.verToggle;
+      AppState.activeVersionId = verId;
+      toggleVersionPdfSelect(verId);
+    });
+  });
+
+  // 갤러리 카드의 PDF 선택 버튼 (별도 유지)
   document.querySelectorAll('[data-pdf-select-version]').forEach(el => {
     el.addEventListener('click', e => {
       e.stopPropagation();
       toggleVersionPdfSelect(el.dataset.pdfSelectVersion);
     });
-    // input[type=checkbox]는 change 이벤트도 처리
-    if (el.tagName === 'INPUT') {
-      el.addEventListener('change', e => {
-        e.stopPropagation();
-      });
-    }
   });
 
   // PDF 내보내기 버튼

@@ -1791,17 +1791,7 @@ function findBestLayoutMatch(productionName, layoutGuide) {
   return null;
 }
 
-const RENDER_TYPES = {
-  flat_print:  { label: '🖨 플랫 인쇄',  instruction: 'Flat print-ready artwork on pure white background. No 3D rendering, no environmental context, no props, no shadows. Clean graphic design layout only.' },
-  fullbleed:   { label: '📐 풀블리드',   instruction: 'Full-bleed edge-to-edge graphic design. Extend design elements to all edges. Bold, impactful layout with no white border.' },
-  digital:     { label: '📱 디지털',     instruction: 'Digital screen-optimized design. Clean crisp graphics suitable for digital display. No print-specific bleed.' },
-  mockup:      { label: '🎁 목업',       instruction: 'Realistic product mockup on clean neutral/white background. Show the physical item clearly without environmental distractions.' },
-  contextual:  { label: '🌆 컨텍스트',   instruction: 'Show the item in a realistic event environment. Appropriate background context for the event setting.' },
-};
-
-function getDefaultRenderInstruction(renderType) {
-  return RENDER_TYPES[renderType]?.instruction || RENDER_TYPES.flat_print.instruction;
-}
+const PRINT_SPEC_INSTRUCTION = 'Production-ready print artwork for direct delivery to print vendor. Flat graphic design layout only. No 3D rendering, no environmental context, no mockup perspective, no scene background, no props. Output must be the actual artwork as it would appear on the final printed/produced item.';
 
 function buildProductionPrompt(prod) {
   const ver = getSelectedVersion();
@@ -1836,7 +1826,7 @@ ${prod.subtext ? `SUBTEXT: "${prod.subtext}"` : ''}
 ${prod.layoutNote ? `LAYOUT NOTE: ${prod.layoutNote}` : ''}
 
 RENDERING:
-${prod.renderInstruction || getDefaultRenderInstruction(prod.renderType || 'flat_print')}
+${PRINT_SPEC_INSTRUCTION}${prod.renderInstruction ? '\n' + prod.renderInstruction : ''}
 
 REQUIREMENTS:
 - Include ALL specified text exactly as written
@@ -1873,21 +1863,12 @@ ${JSON.stringify(ver.guideline, null, 2)}
 ${enabled.map((item, i) => `${i+1}. ${item.name} — ${item.pixels || item.ratio}`).join('\n')}
 
 각 제작물에 대해 아래 JSON으로 출력. 다른 텍스트 금지.
-
-render_type 분류 기준:
-- flat_print: 명찰, 배지, 스티커, 티켓, 봉투, 쇼핑백, 컵, 텀블러, 명함, 리플렛 등 인쇄 소품
-- fullbleed: 배너, 현수막, 포스터, 부스 백월, 무대 배경 등 대형 인쇄물
-- digital: SNS 카드, 웹 배너, 이메일 헤더, 모바일 화면 등 디지털 매체
-- mockup: 굿즈, 유니폼, 에코백, 기념품 등 실물 제품
-- contextual: 전시 공간, 포토존, 환경 연출 등 공간/설치물
-
 {
   "outputs": [
     {
       "num": 1,
       "name": "제작물 이름",
       "ratio": "비율",
-      "render_type": "flat_print | fullbleed | digital | mockup | contextual",
       "headline": "메인 카피 (실제 행사 내용, 플레이스홀더 금지)",
       "subtext": "서브 카피 (null 가능)",
       "layout_note": "레이아웃 설명 (한국어)",
@@ -1911,7 +1892,6 @@ render_type 분류 기준:
       ratio: o.ratio,
       pixels: null,
       status: 'pending',
-      renderType: o.render_type || 'flat_print',
       renderInstruction: '',
       headline: o.headline,
       subtext: o.subtext,
@@ -3202,18 +3182,12 @@ function renderProductionCard(prod) {
               <div class="ref-tags">${prod.refMapping.map(r => `<span class="ref-tag">${r}</span>`).join('')}</div>
             </div>
           ` : ''}
-          <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">
-            <div style="display:flex;align-items:center;gap:8px">
-              <span style="font-size:11px;color:var(--text3);flex-shrink:0">렌더링</span>
-              <select data-render-type-select="${prod.id}" style="font-size:11px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:3px 6px;color:var(--text1);flex:1">
-                ${Object.entries(RENDER_TYPES).map(([k, v]) => `<option value="${k}" ${(prod.renderType||'flat_print')===k?'selected':''}>${v.label}</option>`).join('')}
-              </select>
-            </div>
+          <div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">
+            <span style="font-size:11px;color:var(--text3)">인쇄 특이사항 <span style="color:var(--text3);font-weight:normal">(선택)</span></span>
             <textarea data-render-instruction-ta="${prod.id}"
-              placeholder="렌더링 지시문 (비우면 타입 기본값 사용)"
-              style="font-size:11px;font-family:var(--mono);min-height:52px;line-height:1.5;resize:vertical"
+              placeholder="예: 재단선 3mm 포함, 흰 배경 유지, 세로형 레이아웃 등"
+              style="font-size:11px;font-family:var(--mono);min-height:44px;line-height:1.5;resize:vertical"
             >${escapeHtml(prod.renderInstruction || '')}</textarea>
-            <div style="font-size:10px;color:var(--text3);margin-top:-2px">기본값: ${escapeHtml(getDefaultRenderInstruction(prod.renderType||'flat_print'))}</div>
           </div>
           <div style="margin-top:4px">
             <button class="prompt-toggle-btn" data-toggle-prod-prompt="${prod.id}">👁 프롬프트 보기/수정</button>
@@ -3399,19 +3373,7 @@ function bindEvents() {
     el.addEventListener('keydown', e => { if (e.key === 'Enter') apply(); });
   });
 
-  // 렌더 타입 선택
-  document.querySelectorAll('[data-render-type-select]').forEach(el => {
-    el.addEventListener('change', () => {
-      const prod = AppState.productions.find(p => p.id === el.dataset.renderTypeSelect);
-      if (!prod) return;
-      prod.renderType = el.value;
-      prod.renderInstruction = '';
-      prod.editedPrompt = null;
-      render(); debouncedSave();
-    });
-  });
-
-  // 렌더 지시문 커스터마이즈
+  // 인쇄 특이사항 커스터마이즈
   document.querySelectorAll('[data-render-instruction-ta]').forEach(el => {
     el.addEventListener('blur', () => {
       const prod = AppState.productions.find(p => p.id === el.dataset.renderInstructionTa);

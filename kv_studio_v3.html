@@ -726,7 +726,8 @@ label {
 
 .prod-check-item:hover { border-color: var(--border2); background: var(--bg4); }
 .prod-check-item.checked { border-color: var(--accent-border); background: var(--accent-dim); }
-.prod-check-item input[type="checkbox"] { width: 14px; height: 14px; accent-color: var(--accent); flex-shrink: 0; cursor: pointer; }
+.prod-check-icon { font-size: 13px; flex-shrink: 0; color: var(--text3); }
+.prod-check-item.checked .prod-check-icon { color: var(--accent); }
 
 .prod-check-name { font-size: 12px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .prod-check-ratio { font-family: var(--mono); font-size: 10px; color: var(--text3); flex-shrink: 0; }
@@ -3039,12 +3040,12 @@ function renderStep3() {
       <div class="panel-body">
         <div class="production-list-grid">
           ${AppState.productionList.map(item => `
-            <label class="prod-check-item ${item.enabled ? 'checked' : ''}" data-toggle-prod="${item.id}">
-              <input type="checkbox" ${item.enabled ? 'checked' : ''} onclick="return false">
+            <div class="prod-check-item ${item.enabled ? 'checked' : ''}" data-toggle-prod="${item.id}">
+              <span class="prod-check-icon">${item.enabled ? '☑' : '☐'}</span>
               <span class="prod-check-name">${escapeHtml(item.name)}</span>
               <span class="prod-check-ratio">${item.ratio}</span>
               ${item.id.startsWith('custom_') ? `<button class="thumb-del" data-del-prod="${item.id}" style="position:static;opacity:1;width:auto;padding:0 4px">✕</button>` : ''}
-            </label>
+            </div>
           `).join('')}
         </div>
         <div class="custom-add-row">

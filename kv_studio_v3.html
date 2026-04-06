@@ -917,6 +917,55 @@ label {
   .prod-card-body { grid-template-columns: 1fr; }
 }
 
+@media (max-width: 768px) {
+  #header {
+    flex-wrap: wrap;
+    height: auto;
+    padding: 10px 16px;
+    gap: 8px;
+  }
+  .header-logo { font-size: 15px; }
+  .header-center { order: 3; width: 100%; justify-content: center; }
+  .header-right {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .api-key-wrap label { display: none; }
+  .api-key-input { width: 160px; font-size: 11px; }
+  #app { padding: 12px; }
+  .production-list-grid { grid-template-columns: 1fr; }
+  .custom-add-row { flex-wrap: wrap; }
+  .custom-add-row > * { flex: 1 1 100% !important; }
+  .ver-tab-bar { gap: 2px; }
+  .ver-tab { padding: 4px 10px; font-size: 10px; }
+  .section-title { font-size: 16px; }
+  .gallery-thumb-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 480px) {
+  .api-key-input { width: 120px; }
+  .btn-icon { padding: 5px 8px; font-size: 11px; }
+  .step-tab { padding: 5px 10px; font-size: 10px; }
+}
+
+/* ─── Focus & Accessibility ─── */
+[role="button"] { cursor: pointer; }
+[role="button"]:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent2);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* ─── 스크롤바 ─── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -1162,6 +1211,28 @@ const MASTER_CATALOG = [
   { name: '기프트 박스 라벨', ratio: '2:1' },
 ];
 
+// ── Constants ──
+const MAX_IMAGES = 8;
+const MAX_REFERENCES = 14;
+const BATCH_SIZE = 2;
+const BATCH_DELAY = 5000;
+const RETRY_DELAY = 4000;
+const MAX_RETRIES = 3;
+const DEBOUNCE_SAVE_MS = 500;
+
+// ── Security: sanitize color values from LLM output ──
+function sanitizeHex(hex) {
+  if (!hex || typeof hex !== 'string') return '#ccc';
+  const m = hex.match(/^#?([a-fA-F0-9]{3,8})$/);
+  return m ? '#' + m[1] : '#ccc';
+}
+function sanitizeColor(c) {
+  if (!c || typeof c !== 'string') return '#ccc';
+  if (/^#[a-fA-F0-9]{3,8}$/.test(c)) return c;
+  if (/^rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)$/.test(c)) return c;
+  return '#ccc';
+}
+
 function getInitialState() {
   return {
     currentStep: 1,
@@ -1208,7 +1279,9 @@ const AppState = {
 // [B] IndexedDB
 // ════════════════════════════════════════════════════════════
 
+let _dbInstance = null;
 async function openDB() {
+  if (_dbInstance) return _dbInstance;
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = e => {
@@ -1220,7 +1293,11 @@ async function openDB() {
       if (!db.objectStoreNames.contains('images'))
         db.createObjectStore('images', { keyPath: 'id' });
     };
-    req.onsuccess = e => resolve(e.target.result);
+    req.onsuccess = e => {
+      _dbInstance = e.target.result;
+      _dbInstance.onclose = () => { _dbInstance = null; };
+      resolve(_dbInstance);
+    };
     req.onerror = e => reject(e.target.error);
   });
 }
@@ -1385,6 +1462,16 @@ async function restoreProjectImages(state) {
   return state;
 }
 
+async function deleteProjectById(projectId) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('projects', 'readwrite');
+    tx.objectStore('projects').delete(projectId);
+    tx.oncomplete = resolve;
+    tx.onerror = e => reject(e.target.error);
+  });
+}
+
 async function listProjects() {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -1412,7 +1499,7 @@ const debouncedSave = debounce(async () => {
   await saveSetting('lastProjectId', AppState.projectId);
   if (AppState.apiKey) await saveSetting('apiKey', AppState.apiKey);
   if (AppState.model) await saveSetting('model', AppState.model);
-}, 500);
+}, DEBOUNCE_SAVE_MS);
 
 // ════════════════════════════════════════════════════════════
 // [C] Gemini API
@@ -1420,13 +1507,13 @@ const debouncedSave = debounce(async () => {
 
 async function callGemini(contents, wantImage = false) {
   if (!AppState.apiKey) throw new Error('API 키를 입력해주세요');
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${AppState.model}:generateContent?key=${AppState.apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${AppState.model}:generateContent`;
   const body = { contents: [{ parts: contents }], generationConfig: {} };
   if (wantImage) body.generationConfig.responseModalities = ['TEXT', 'IMAGE'];
 
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': AppState.apiKey },
     body: JSON.stringify(body),
   });
 
@@ -1462,7 +1549,7 @@ function parseGeminiJSON(text) {
 
 async function callGeminiMultiTurn(history, newParts, wantImage = false) {
   if (!AppState.apiKey) throw new Error('API 키를 입력해주세요');
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${AppState.model}:generateContent?key=${AppState.apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${AppState.model}:generateContent`;
   const body = {
     contents: [...history, { role: 'user', parts: newParts }],
     generationConfig: {}
@@ -1471,7 +1558,7 @@ async function callGeminiMultiTurn(history, newParts, wantImage = false) {
 
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': AppState.apiKey },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -1740,10 +1827,10 @@ async function generateAllGuideItems(verId) {
   if (!ver) return;
   AppState.isProcessing = true; render();
   const active = ver.guideItems.filter(i => i.enabled && i.status !== 'done');
-  for (let i = 0; i < active.length; i += 2) {
-    const batch = active.slice(i, i + 2);
+  for (let i = 0; i < active.length; i += BATCH_SIZE) {
+    const batch = active.slice(i, i + BATCH_SIZE);
     await Promise.all(batch.map(item => generateGuideItem(verId, item.id, item.editedPrompt)));
-    if (i + 2 < active.length) await sleep(5000);
+    if (i + BATCH_SIZE < active.length) await sleep(BATCH_DELAY);
   }
   AppState.isProcessing = false;
   render();
@@ -1946,7 +2033,7 @@ async function generateProductionImage(prodId, editedPrompt = null) {
   }
 
   const imgParts = parts.filter(p => p.inlineData);
-  const MAX_REF = 14;
+  const MAX_REF = MAX_REFERENCES;
   const trimmedImgParts = imgParts.slice(0, MAX_REF);
   if (imgParts.length > MAX_REF) addLog(`⚠️ 레퍼런스 이미지 ${MAX_REF}장으로 제한됨`, 'warn');
   trimmedImgParts.push({ text: prompt });
@@ -2046,15 +2133,15 @@ async function generateNoTextVersion(prodId) {
 async function generateAllProductions() {
   AppState.isProcessing = true; render();
   const queue = AppState.productions.filter(p => p.status !== 'done');
-  for (let i = 0; i < queue.length; i += 2) {
-    const batch = queue.slice(i, i + 2);
+  for (let i = 0; i < queue.length; i += BATCH_SIZE) {
+    const batch = queue.slice(i, i + BATCH_SIZE);
     await Promise.all(batch.map(p => generateProductionImage(p.id, p.editedPrompt)));
-    if (i + 2 < queue.length) await sleep(5000);
+    if (i + BATCH_SIZE < queue.length) await sleep(BATCH_DELAY);
   }
-  const failed = AppState.productions.filter(p => p.status === 'error' && p.attempts < 3);
+  const failed = AppState.productions.filter(p => p.status === 'error' && p.attempts < MAX_RETRIES);
   if (failed.length > 0) {
     addLog(`${failed.length}개 실패 — 재시도`, 'warn');
-    for (const p of failed) { await sleep(4000); await generateProductionImage(p.id); }
+    for (const p of failed) { await sleep(RETRY_DELAY); await generateProductionImage(p.id); }
   }
   AppState.isProcessing = false; render();
   showToast('이미지 생성 완료!', 'ok');
@@ -2265,7 +2352,7 @@ function renderPrintPage(ver) {
 
   const colorItems = Object.entries(colors).map(([k, v]) => `
     <div class="print-color-item">
-      <div class="print-color-swatch" style="background:${v.hex || '#ccc'}"></div>
+      <div class="print-color-swatch" style="background:${sanitizeColor(v.hex)}"></div>
       <div class="print-color-info">
         <div class="print-color-hex">${v.hex || ''}</div>
         <div class="print-color-usage">${k} · ${v.usage || ''}</div>
@@ -2391,7 +2478,10 @@ function addLog(message, type = '') {
   const logEl = document.getElementById('log-area');
   if (logEl) {
     const cls = type === 'ok' ? 'log-ok' : type === 'err' ? 'log-err' : type === 'warn' ? 'log-warn' : '';
-    logEl.innerHTML += `<div class="${cls}">${new Date().toLocaleTimeString()} ${escapeHtml(message)}</div>`;
+    const div = document.createElement('div');
+    if (cls) div.className = cls;
+    div.textContent = `${new Date().toLocaleTimeString()} ${message}`;
+    logEl.appendChild(div);
     logEl.scrollTop = logEl.scrollHeight;
   }
 }
@@ -2529,7 +2619,7 @@ function render() {
     ${AppState.currentStep === 2 ? renderStep2() : ''}
     ${AppState.currentStep === 3 ? renderStep3() : ''}
   `;
-  bindEvents();
+  bindInputListeners();
 }
 
 function renderHeader() {
@@ -2539,16 +2629,16 @@ function renderHeader() {
   return `
     <div class="header-logo">KV<span>Studio</span> <span style="font-size:11px;color:var(--text3);font-family:var(--mono);font-weight:400">v3</span></div>
     <div class="header-center">
-      <div class="step-tab ${s===1?'active':''} clickable" data-goto="1">01 · 입력 & 가이드라인</div>
-      <div class="step-tab ${s===2?'active':canGoStep2?'done':''} ${canGoStep2?'clickable':''}" data-goto="2">02 · 가이드 산출물</div>
-      <div class="step-tab ${s===3?'active':AppState.productions.length>0?'done':''} ${canGoStep3?'clickable':''}" data-goto="3">03 · 제작물 이미지</div>
+      <div class="step-tab ${s===1?'active':''} clickable" data-goto="1" role="tab" tabindex="0" aria-selected="${s===1}">01 · 입력 & 가이드라인</div>
+      <div class="step-tab ${s===2?'active':canGoStep2?'done':''} ${canGoStep2?'clickable':''}" data-goto="2" role="tab" tabindex="0" aria-selected="${s===2}">02 · 가이드 산출물</div>
+      <div class="step-tab ${s===3?'active':AppState.productions.length>0?'done':''} ${canGoStep3?'clickable':''}" data-goto="3" role="tab" tabindex="0" aria-selected="${s===3}">03 · 제작물 이미지</div>
     </div>
     <div class="header-right">
       <div class="api-key-wrap">
         <label for="apiKeyInput">API KEY</label>
         <input type="password" id="apiKeyInput" class="api-key-input" placeholder="Gemini API 키 입력" value="${escapeHtml(AppState.apiKey)}">
       </div>
-      <button class="btn-icon" id="exportBtn">📤 내보내기</button>
+      <button class="btn-icon" id="exportBtn" aria-label="프로젝트 내보내기">📤 내보내기</button>
       <label class="btn-icon" style="cursor:pointer;margin:0">
         📥 불러오기
         <input type="file" id="importFileInput" accept=".zip" style="display:none">
@@ -2571,6 +2661,7 @@ function renderProjectList() {
         <div class="project-list-item" data-load-project="${p.id}">
           <div class="project-list-name">${escapeHtml(p.name)}</div>
           <div class="project-list-meta">Step ${p.step} · ${p.versionCount}버전 · ${new Date(p.lastModifiedAt).toLocaleDateString('ko')}</div>
+          <button class="ver-del" data-delete-project="${p.id}" title="프로젝트 삭제" aria-label="프로젝트 삭제">✕</button>
         </div>
       `).join('')}
     </div>
@@ -2705,10 +2796,10 @@ function renderVersionCard(ver) {
 
   return `
     <div class="ver-card ${isActive ? 'active' : ''} ${isSelected ? 'selected-for-step3' : ''} ${isPdfSel ? 'pdf-selected' : ''}"
-      data-activate-version="${ver.id}">
+      data-activate-version="${ver.id}" role="button" tabindex="0">
       <span class="ver-label">${escapeHtml(ver.label)}</span>
       <div class="ver-colors">
-        ${(ver.preview?.colors || []).map(c => `<span class="ver-color-chip" style="background:${c}" title="${c}"></span>`).join('')}
+        ${(ver.preview?.colors || []).map(c => `<span class="ver-color-chip" style="background:${sanitizeColor(c)}" title="${escapeHtml(c)}"></span>`).join('')}
       </div>
       <div class="ver-moods">
         ${(ver.preview?.mood || []).map(m => `<span class="ver-mood-tag">${escapeHtml(m)}</span>`).join('')}
@@ -2744,9 +2835,9 @@ function renderGuidelineViewer(ver) {
       if (s.key === 'color_palette') {
         content = Object.entries(data).map(([k, v]) => `
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-            <span class="color-chip" style="background:${v.hex}"></span>
+            <span class="color-chip" style="background:${sanitizeColor(v.hex)}"></span>
             <span style="font-family:var(--mono);font-size:11px;color:var(--accent2)">${k}</span>
-            <span style="font-family:var(--mono);font-size:11px;color:var(--text3)">${v.hex}</span>
+            <span style="font-family:var(--mono);font-size:11px;color:var(--text3)">${escapeHtml(v.hex)}</span>
             <span style="font-size:11px;color:var(--text2)">${v.usage || ''}</span>
           </div>
         `).join('');
@@ -2828,7 +2919,7 @@ function renderStep2() {
         const verDone = ver.guideItems.filter(i => i.status === 'done').length;
         return `
           <div class="ver-tab ${isActive ? 'active' : ''} ${isConfirmed ? 'confirmed' : ''} ${isPdfSel ? 'pdf-checked' : ''}"
-            data-ver-toggle="${ver.id}">
+            data-ver-toggle="${ver.id}" role="button" tabindex="0">
             <span style="font-size:12px;opacity:${isPdfSel ? '1' : '0.25'}">${isPdfSel ? '☑' : '☐'}</span>
             ${escapeHtml(ver.label)}
             ${ver.starred ? '<span style="color:var(--warn)">★</span>' : ''}
@@ -2940,7 +3031,7 @@ function renderGalleryVerCard(ver) {
       `}
 
       <div class="gallery-ver-actions">
-        <button class="btn btn-sm ${isActive ? '' : 'btn-ghost'}" data-activate-version="${ver.id}">
+        <button class="btn btn-sm ${isActive ? '' : 'btn-ghost'}" data-activate-version="${ver.id}" role="button" tabindex="0">
           ${isActive ? '● 활성' : '보기'}
         </button>
         <button class="btn btn-sm ${isConfirmed ? 'btn-ok' : 'btn-ghost'}" data-select-version="${ver.id}">
@@ -3040,7 +3131,7 @@ function renderStep3() {
       <div class="panel-body">
         <div class="production-list-grid">
           ${AppState.productionList.map(item => `
-            <div class="prod-check-item ${item.enabled ? 'checked' : ''}" data-toggle-prod="${item.id}">
+            <div class="prod-check-item ${item.enabled ? 'checked' : ''}" data-toggle-prod="${item.id}" role="button" tabindex="0">
               <span class="prod-check-icon">${item.enabled ? '☑' : '☐'}</span>
               <span class="prod-check-name">${escapeHtml(item.name)}</span>
               <span class="prod-check-ratio">${item.ratio}</span>
@@ -3197,73 +3288,321 @@ function renderThumbs(images, type) {
 // [M] 이벤트 바인더
 // ════════════════════════════════════════════════════════════
 
-function bindEvents() {
-  // API 키
-  const apiInput = document.getElementById('apiKeyInput');
-  if (apiInput) {
-    apiInput.addEventListener('change', () => {
-      AppState.apiKey = apiInput.value.trim();
-      debouncedSave();
-    });
-  }
+// ── Delegated Event System ──
+// Single listener handles all click-based interactions via data attributes.
+// This eliminates re-attaching 50+ listeners on every render().
 
-  // 스텝 탭
-  document.querySelectorAll('[data-goto]').forEach(el => {
-    el.addEventListener('click', () => {
-      const step = parseInt(el.dataset.goto);
-      if (el.classList.contains('clickable') || el.tagName === 'BUTTON') {
-        AppState.currentStep = step;
-        render();
+function setupDelegatedEvents() {
+  document.addEventListener('click', async e => {
+    const t = e.target;
+
+    // Upload area clicks → trigger hidden file input
+    const uploadArea = t.closest('#ciUploadArea');
+    if (uploadArea && !t.closest('input')) { document.getElementById('ciFileInput')?.click(); return; }
+    const refUploadArea = t.closest('#refUploadArea');
+    if (refUploadArea && !t.closest('input')) { document.getElementById('refFileInput')?.click(); return; }
+    const pdfUploadArea = t.closest('#pdfUploadArea');
+    if (pdfUploadArea && !t.closest('input')) { document.getElementById('pdfFileInput')?.click(); return; }
+
+    // data-goto (step navigation)
+    const gotoEl = t.closest('[data-goto]');
+    if (gotoEl) {
+      const step = parseInt(gotoEl.dataset.goto);
+      if (gotoEl.classList.contains('clickable') || gotoEl.tagName === 'BUTTON') {
+        AppState.currentStep = step; render();
       }
-    });
-  });
-
-  // 내보내기
-  document.getElementById('exportBtn')?.addEventListener('click', exportProject);
-
-  // 불러오기
-  document.getElementById('importFileInput')?.addEventListener('change', async function() {
-    const file = this.files[0];
-    if (file) await importProject(file);
-  });
-
-  // 새 프로젝트
-  document.getElementById('newProjectBtn')?.addEventListener('click', async () => {
-    if (AppState.projectId) await saveProject(AppState);
-    const initial = getInitialState();
-    initial.apiKey = AppState.apiKey;
-    initial.model = AppState.model;
-    Object.assign(AppState, initial);
-    AppState._projectListOpen = false;
-    AppState._refAnalysis = null;
-    render();
-  });
-
-  // 프로젝트 목록
-  document.getElementById('projectBtn')?.addEventListener('click', async () => {
-    AppState._projectListOpen = !AppState._projectListOpen;
-    if (AppState._projectListOpen) {
-      AppState._projectList = await listProjects();
+      return;
     }
-    render();
-  });
 
-  // 프로젝트 로드
-  document.querySelectorAll('[data-load-project]').forEach(el => {
-    el.addEventListener('click', async () => {
-      const id = el.dataset.loadProject;
-      const saved = await loadProject(id);
+    // Thumbnail delete
+    const delImg = t.closest('[data-del-img]');
+    if (delImg) {
+      e.stopPropagation();
+      const type = delImg.dataset.delImg;
+      const idx = parseInt(delImg.dataset.idx);
+      if (type === 'ci') AppState.input.ciImages.splice(idx, 1);
+      else AppState.input.referenceImages.splice(idx, 1);
+      AppState._refAnalysis = null;
+      render(); debouncedSave(); return;
+    }
+
+    // Custom prod item delete
+    const delProd = t.closest('[data-del-prod]');
+    if (delProd) {
+      e.stopPropagation();
+      AppState.productionList = AppState.productionList.filter(i => i.id !== delProd.dataset.delProd);
+      render(); debouncedSave(); return;
+    }
+
+    // Version star
+    const starBtn = t.closest('[data-star-version]');
+    if (starBtn) { e.stopPropagation(); toggleVersionStar(starBtn.dataset.starVersion); return; }
+
+    // Version delete
+    const delVerBtn = t.closest('[data-delete-version]');
+    if (delVerBtn) { e.stopPropagation(); deleteVersion(delVerBtn.dataset.deleteVersion); return; }
+
+    // Version select (Step3)
+    const selVerBtn = t.closest('[data-select-version]');
+    if (selVerBtn) { e.stopPropagation(); selectVersionForStep3(selVerBtn.dataset.selectVersion); return; }
+
+    // Version PDF select
+    const pdfSelBtn = t.closest('[data-pdf-select-version]');
+    if (pdfSelBtn) { e.stopPropagation(); toggleVersionPdfSelect(pdfSelBtn.dataset.pdfSelectVersion); return; }
+
+    // Version tab toggle (Step 2)
+    const verToggle = t.closest('[data-ver-toggle]');
+    if (verToggle) {
+      const verId = verToggle.dataset.verToggle;
+      AppState.activeVersionId = verId;
+      toggleVersionPdfSelect(verId); return;
+    }
+
+    // Version activate (card click)
+    const actVer = t.closest('[data-activate-version]');
+    if (actVer && !t.closest('[data-star-version]') && !t.closest('[data-delete-version]') && !t.closest('[data-select-version]') && !t.closest('[data-pdf-select-version]')) {
+      AppState.activeVersionId = actVer.dataset.activateVersion; render(); return;
+    }
+
+    // Toggle section (guideline viewer)
+    const togSec = t.closest('[data-toggle-section]');
+    if (togSec) {
+      const body = document.getElementById('gsec-' + togSec.dataset.toggleSection);
+      if (body) body.style.display = body.style.display === 'none' ? '' : 'none';
+      return;
+    }
+
+    // Edit guideline JSON
+    const editGL = t.closest('[data-edit-guideline]');
+    if (editGL) {
+      const idx = AppState.versions.findIndex(v => v.id === editGL.dataset.editGuideline);
+      if (idx !== -1) { AppState.versions[idx].guidelineEditBuffer = JSON.stringify(AppState.versions[idx].guideline, null, 2); render(); }
+      return;
+    }
+
+    // Apply guideline JSON
+    const applyGL = t.closest('[data-apply-guideline]');
+    if (applyGL) {
+      const verId = applyGL.dataset.applyGuideline;
+      const idx = AppState.versions.findIndex(v => v.id === verId);
+      if (idx === -1) return;
+      try {
+        const edited = document.getElementById(`guidelineEditArea-${verId}`)?.value;
+        if (!edited) return;
+        AppState.versions[idx].guideline = JSON.parse(edited);
+        AppState.versions[idx].guidelineEditBuffer = null;
+        render(); debouncedSave();
+      } catch (err) { showToast('JSON 파싱 오류: ' + err.message, 'err'); }
+      return;
+    }
+
+    // Cancel guideline JSON edit
+    const cancelGL = t.closest('[data-cancel-guideline]');
+    if (cancelGL) {
+      const idx = AppState.versions.findIndex(v => v.id === cancelGL.dataset.cancelGuideline);
+      if (idx !== -1) { AppState.versions[idx].guidelineEditBuffer = null; render(); }
+      return;
+    }
+
+    // Guide item generate
+    const genGuide = t.closest('[data-gen-guide]');
+    if (genGuide) {
+      const [verId, itemId] = genGuide.dataset.genGuide.split(':');
+      generateGuideItem(verId, itemId); return;
+    }
+
+    // Guide item toggle enable
+    const togGuide = t.closest('[data-toggle-guide]');
+    if (togGuide) {
+      const [verId, itemId] = togGuide.dataset.toggleGuide.split(':');
+      const verIdx = AppState.versions.findIndex(v => v.id === verId);
+      if (verIdx !== -1) {
+        const itemIdx = AppState.versions[verIdx].guideItems.findIndex(i => i.id === itemId);
+        if (itemIdx !== -1) { AppState.versions[verIdx].guideItems[itemIdx].enabled = !AppState.versions[verIdx].guideItems[itemIdx].enabled; render(); debouncedSave(); }
+      }
+      return;
+    }
+
+    // Prompt toggle (guide)
+    const togPrompt = t.closest('[data-toggle-prompt]');
+    if (togPrompt) {
+      const [verId, itemId] = togPrompt.dataset.togglePrompt.split(':');
+      const area = document.getElementById(`prompt-area-${verId}-${itemId}`);
+      if (area) area.classList.toggle('open');
+      return;
+    }
+
+    // Prompt apply (guide)
+    const applyPrompt = t.closest('[data-apply-prompt]');
+    if (applyPrompt) {
+      const key = applyPrompt.dataset.applyPrompt;
+      const [verId, itemId] = key.split(':');
+      const ta = document.querySelector(`[data-prompt-ta="${key}"]`);
+      if (!ta) return;
+      const verIdx = AppState.versions.findIndex(v => v.id === verId);
+      if (verIdx !== -1) {
+        const itemIdx = AppState.versions[verIdx].guideItems.findIndex(i => i.id === itemId);
+        if (itemIdx !== -1) AppState.versions[verIdx].guideItems[itemIdx].editedPrompt = ta.value;
+      }
+      generateGuideItem(verId, itemId, ta.value); return;
+    }
+
+    // Production list toggle
+    const togProdItem = t.closest('[data-toggle-prod]');
+    if (togProdItem && !t.closest('[data-del-prod]')) {
+      const idx = AppState.productionList.findIndex(i => i.id === togProdItem.dataset.toggleProd);
+      if (idx !== -1) { AppState.productionList[idx].enabled = !AppState.productionList[idx].enabled; render(); debouncedSave(); }
+      return;
+    }
+
+    // Production image generate
+    const genProd = t.closest('[data-gen-prod]');
+    if (genProd) { generateProductionImage(genProd.dataset.genProd); return; }
+
+    // No-text version generate
+    const genNotext = t.closest('[data-gen-notext]');
+    if (genNotext) { generateNoTextVersion(genNotext.dataset.genNotext); return; }
+
+    // Prompt toggle (production)
+    const togProdPrompt = t.closest('[data-toggle-prod-prompt]');
+    if (togProdPrompt) {
+      const area = document.getElementById('prod-prompt-area-' + togProdPrompt.dataset.toggleProdPrompt);
+      if (area) area.classList.toggle('open');
+      return;
+    }
+
+    // Prompt apply (production)
+    const applyProdPrompt = t.closest('[data-apply-prod-prompt]');
+    if (applyProdPrompt) {
+      const id = applyProdPrompt.dataset.applyProdPrompt;
+      const ta = document.querySelector(`[data-prod-prompt-ta="${id}"]`);
+      if (!ta) return;
+      const idx = AppState.productions.findIndex(p => p.id === id);
+      if (idx !== -1) AppState.productions[idx].editedPrompt = ta.value;
+      generateProductionImage(id, ta.value); return;
+    }
+
+    // Image tab switch (original/notext)
+    const imgTab = t.closest('[data-img-tab]');
+    if (imgTab) {
+      const prodId = imgTab.dataset.imgTab;
+      const tab = imgTab.dataset.tab;
+      const idx = AppState.productions.findIndex(p => p.id === prodId);
+      if (idx !== -1) {
+        AppState.productions[idx]._showNoText = (tab === 'notext');
+        updateProdCard(prodId);
+        document.querySelectorAll(`[data-img-tab="${prodId}"]`).forEach(b => {
+          b.className = `btn btn-sm ${b.dataset.tab === tab ? '' : 'btn-ghost'}`;
+          b.style.cssText = 'font-size:11px;padding:4px 10px';
+        });
+      }
+      return;
+    }
+
+    // Load project
+    const loadProj = t.closest('[data-load-project]');
+    if (loadProj) {
+      const saved = await loadProject(loadProj.dataset.loadProject);
       if (saved) {
         await restoreProjectImages(saved);
         Object.assign(AppState, saved);
-        AppState._projectListOpen = false;
-        AppState._refAnalysis = null;
+        AppState._projectListOpen = false; AppState._refAnalysis = null;
         render();
       }
-    });
+      return;
+    }
+
+    // Delete project
+    const delProj = t.closest('[data-delete-project]');
+    if (delProj) {
+      e.stopPropagation();
+      const id = delProj.dataset.deleteProject;
+      if (!confirm('이 프로젝트를 삭제할까요?')) return;
+      await deleteProjectById(id);
+      AppState._projectList = await listProjects();
+      if (AppState.projectId === id) {
+        Object.assign(AppState, getInitialState());
+        AppState.apiKey = (await loadSettings()).apiKey || '';
+      }
+      render(); return;
+    }
+
+    // Buttons by ID
+    const btnId = t.closest('button, label')?.id;
+    switch (btnId) {
+      case 'exportBtn': exportProject(); break;
+      case 'generateVersionBtn': generateNewVersion(); break;
+      case 'goStep2Btn': AppState.currentStep = 2; render(); break;
+      case 'genAllGuideBtn': {
+        const verId = t.closest('#genAllGuideBtn')?.dataset.verId || AppState.activeVersionId;
+        if (verId) generateAllGuideItems(verId); break;
+      }
+      case 'pdfExportBtn': printVersionsPdf(AppState.versions.filter(v => v.selectedForPdf).map(v => v.id)); break;
+      case 'clearPdfSelBtn': AppState.versions.forEach(v => v.selectedForPdf = false); render(); break;
+      case 'genAllSelectedBtn': {
+        const selected = AppState.versions.filter(v => v.selectedForPdf);
+        for (const ver of selected) await generateAllGuideItems(ver.id);
+        break;
+      }
+      case 'selectAllBtn': AppState.productionList.forEach(i => i.enabled = true); render(); debouncedSave(); break;
+      case 'deselectAllBtn': AppState.productionList.forEach(i => i.enabled = false); render(); debouncedSave(); break;
+      case 'addCustomBtn': {
+        const name = document.getElementById('customName')?.value.trim();
+        const ratio = document.getElementById('customRatio')?.value.trim();
+        const pixels = document.getElementById('customPixels')?.value.trim();
+        if (!name) { showToast('이름을 입력해주세요', 'warn'); return; }
+        AppState.productionList.push({ id: 'custom_' + Date.now(), name, ratio: ratio || '1:1', pixels: pixels || null, enabled: true });
+        render(); debouncedSave(); break;
+      }
+      case 'genPlanBtn': generateProductionPlan(); break;
+      case 'genAllProdBtn': generateAllProductions(); break;
+      case 'downloadZipBtn': downloadAllAsZip(); break;
+      case 'newProjectBtn': {
+        if (AppState.projectId) await saveProject(AppState);
+        const initial = getInitialState();
+        initial.apiKey = AppState.apiKey; initial.model = AppState.model;
+        Object.assign(AppState, initial);
+        AppState._projectListOpen = false; AppState._refAnalysis = null;
+        render(); break;
+      }
+      case 'projectBtn': {
+        AppState._projectListOpen = !AppState._projectListOpen;
+        if (AppState._projectListOpen) AppState._projectList = await listProjects();
+        render(); break;
+      }
+    }
   });
 
-  // Step 1: 행사 정보
+  // Keyboard accessibility: Enter/Space on [role=button]
+  document.addEventListener('keydown', e => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.getAttribute('role') === 'button') {
+      e.preventDefault(); e.target.click();
+    }
+  });
+
+  // Drag-and-drop for upload areas (uses event delegation)
+  document.addEventListener('dragover', e => {
+    const area = e.target.closest('.upload-area');
+    if (area) { e.preventDefault(); area.style.borderColor = 'var(--accent)'; }
+  });
+  document.addEventListener('dragleave', e => {
+    const area = e.target.closest('.upload-area');
+    if (area) area.style.borderColor = '';
+  });
+  document.addEventListener('drop', async e => {
+    const area = e.target.closest('.upload-area');
+    if (!area) return;
+    e.preventDefault(); area.style.borderColor = '';
+    if (area.id === 'ciUploadArea') await handleImageUpload(e.dataTransfer.files, 'ci');
+    else if (area.id === 'refUploadArea') await handleImageUpload(e.dataTransfer.files, 'ref');
+  });
+}
+
+// Bind input/change listeners that can't be delegated (text inputs, file inputs)
+function bindInputListeners() {
+  const apiInput = document.getElementById('apiKeyInput');
+  if (apiInput) apiInput.addEventListener('change', () => { AppState.apiKey = apiInput.value.trim(); debouncedSave(); });
+
   const evInfo = document.getElementById('eventInfo');
   if (evInfo) evInfo.addEventListener('input', () => { AppState.input.eventInfo = evInfo.value; debouncedSave(); });
 
@@ -3273,329 +3612,17 @@ function bindEvents() {
   const pdfExtracted = document.getElementById('pdfExtracted');
   if (pdfExtracted) pdfExtracted.addEventListener('input', () => { AppState.input.ciPdfExtractedText = pdfExtracted.value; debouncedSave(); });
 
-  // CI 이미지 업로드
-  const ciArea = document.getElementById('ciUploadArea');
-  const ciInput = document.getElementById('ciFileInput');
-  if (ciArea && ciInput) {
-    ciArea.addEventListener('click', () => ciInput.click());
-    ciInput.addEventListener('change', async () => { await handleImageUpload(ciInput.files, 'ci'); });
-    ciArea.addEventListener('dragover', e => { e.preventDefault(); ciArea.style.borderColor = 'var(--accent)'; });
-    ciArea.addEventListener('dragleave', () => { ciArea.style.borderColor = ''; });
-    ciArea.addEventListener('drop', async e => { e.preventDefault(); ciArea.style.borderColor = ''; await handleImageUpload(e.dataTransfer.files, 'ci'); });
-  }
-
-  // 레퍼런스 이미지 업로드
-  const refArea = document.getElementById('refUploadArea');
-  const refInput = document.getElementById('refFileInput');
-  if (refArea && refInput) {
-    refArea.addEventListener('click', () => refInput.click());
-    refInput.addEventListener('change', async () => { await handleImageUpload(refInput.files, 'ref'); });
-    refArea.addEventListener('dragover', e => { e.preventDefault(); refArea.style.borderColor = 'var(--accent)'; });
-    refArea.addEventListener('dragleave', () => { refArea.style.borderColor = ''; });
-    refArea.addEventListener('drop', async e => { e.preventDefault(); refArea.style.borderColor = ''; await handleImageUpload(e.dataTransfer.files, 'ref'); });
-  }
-
-  // PDF 업로드
-  const pdfArea = document.getElementById('pdfUploadArea');
-  const pdfInput = document.getElementById('pdfFileInput');
-  if (pdfArea && pdfInput) {
-    pdfArea.addEventListener('click', () => pdfInput.click());
-    pdfInput.addEventListener('change', async () => {
-      if (!pdfInput.files[0]) return;
-      addLog('PDF 추출 중...');
-      try {
-        await extractCiPdf(pdfInput.files[0]);
-        addLog('PDF 추출 완료', 'ok');
-        render();
-      } catch (e) { addLog('PDF 추출 실패: ' + e.message, 'err'); }
-    });
-  }
-
-  // 썸네일 삭제
-  document.querySelectorAll('[data-del-img]').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      const type = btn.dataset.delImg;
-      const idx = parseInt(btn.dataset.idx);
-      if (type === 'ci') AppState.input.ciImages.splice(idx, 1);
-      else AppState.input.referenceImages.splice(idx, 1);
-      AppState._refAnalysis = null;
-      render(); debouncedSave();
-    });
+  // File inputs
+  document.getElementById('ciFileInput')?.addEventListener('change', async function() { await handleImageUpload(this.files, 'ci'); });
+  document.getElementById('refFileInput')?.addEventListener('change', async function() { await handleImageUpload(this.files, 'ref'); });
+  document.getElementById('pdfFileInput')?.addEventListener('change', async function() {
+    if (!this.files[0]) return;
+    addLog('PDF 추출 중...');
+    try { await extractCiPdf(this.files[0]); addLog('PDF 추출 완료', 'ok'); render(); }
+    catch (err) { addLog('PDF 추출 실패: ' + err.message, 'err'); }
   });
-
-  // 버전 생성
-  document.getElementById('generateVersionBtn')?.addEventListener('click', generateNewVersion);
-
-  // Step 1 → 2
-  document.getElementById('goStep2Btn')?.addEventListener('click', () => { AppState.currentStep = 2; render(); });
-
-  // 버전 활성화 (카드 클릭)
-  document.querySelectorAll('[data-activate-version]').forEach(el => {
-    el.addEventListener('click', e => {
-      if (e.target.dataset.starVersion || e.target.dataset.deleteVersion ||
-          e.target.dataset.selectVersion || e.target.dataset.pdfSelectVersion) return;
-      AppState.activeVersionId = el.dataset.activateVersion;
-      render();
-    });
-  });
-
-  // 버전 별표 토글
-  document.querySelectorAll('[data-star-version]').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      toggleVersionStar(btn.dataset.starVersion);
-    });
-  });
-
-  // 버전 삭제
-  document.querySelectorAll('[data-delete-version]').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      deleteVersion(btn.dataset.deleteVersion);
-    });
-  });
-
-  // 버전 확정 (Step3 연결)
-  document.querySelectorAll('[data-select-version]').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      selectVersionForStep3(btn.dataset.selectVersion);
-    });
-  });
-
-  // 버전 탭 전체 클릭 = PDF 선택 on/off + 활성 버전 전환
-  document.querySelectorAll('[data-ver-toggle]').forEach(el => {
-    el.addEventListener('click', () => {
-      const verId = el.dataset.verToggle;
-      AppState.activeVersionId = verId;
-      toggleVersionPdfSelect(verId);
-    });
-  });
-
-  // 갤러리 카드의 PDF 선택 버튼 (별도 유지)
-  document.querySelectorAll('[data-pdf-select-version]').forEach(el => {
-    el.addEventListener('click', e => {
-      e.stopPropagation();
-      toggleVersionPdfSelect(el.dataset.pdfSelectVersion);
-    });
-  });
-
-  // PDF 내보내기 버튼
-  document.getElementById('pdfExportBtn')?.addEventListener('click', () => {
-    const ids = AppState.versions.filter(v => v.selectedForPdf).map(v => v.id);
-    printVersionsPdf(ids);
-  });
-
-  // PDF 선택 초기화
-  document.getElementById('clearPdfSelBtn')?.addEventListener('click', () => {
-    AppState.versions.forEach(v => v.selectedForPdf = false);
-    render();
-  });
-
-  // 선택된 버전 전체 가이드 생성
-  document.getElementById('genAllSelectedBtn')?.addEventListener('click', async () => {
-    const selected = AppState.versions.filter(v => v.selectedForPdf);
-    if (!selected.length) return;
-    for (const ver of selected) {
-      await generateAllGuideItems(ver.id);
-    }
-  });
-
-  // 가이드라인 섹션 토글
-  document.querySelectorAll('[data-toggle-section]').forEach(el => {
-    el.addEventListener('click', () => {
-      const body = document.getElementById('gsec-' + el.dataset.toggleSection);
-      if (body) body.style.display = body.style.display === 'none' ? '' : 'none';
-    });
-  });
-
-  // 가이드라인 JSON 직접 수정
-  document.querySelectorAll('[data-edit-guideline]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const verId = btn.dataset.editGuideline;
-      const idx = AppState.versions.findIndex(v => v.id === verId);
-      if (idx !== -1) {
-        AppState.versions[idx].guidelineEditBuffer = JSON.stringify(AppState.versions[idx].guideline, null, 2);
-        render();
-      }
-    });
-  });
-
-  document.querySelectorAll('[data-apply-guideline]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const verId = btn.dataset.applyGuideline;
-      const idx = AppState.versions.findIndex(v => v.id === verId);
-      if (idx === -1) return;
-      try {
-        const edited = document.getElementById(`guidelineEditArea-${verId}`)?.value;
-        if (!edited) return;
-        const parsed = JSON.parse(edited);
-        AppState.versions[idx].guideline = parsed;
-        AppState.versions[idx].guidelineEditBuffer = null;
-        render(); debouncedSave();
-      } catch (e) { showToast('JSON 파싱 오류: ' + e.message, 'err'); }
-    });
-  });
-
-  document.querySelectorAll('[data-cancel-guideline]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const verId = btn.dataset.cancelGuideline;
-      const idx = AppState.versions.findIndex(v => v.id === verId);
-      if (idx !== -1) {
-        AppState.versions[idx].guidelineEditBuffer = null;
-        render();
-      }
-    });
-  });
-
-  // Step 2: 전체 생성
-  const genAllGuide = document.getElementById('genAllGuideBtn');
-  if (genAllGuide) {
-    genAllGuide.addEventListener('click', () => {
-      const verId = genAllGuide.dataset.verId || AppState.activeVersionId;
-      if (verId) generateAllGuideItems(verId);
-    });
-  }
-
-  // 가이드 개별 생성 / 재생성
-  document.querySelectorAll('[data-gen-guide]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const [verId, itemId] = btn.dataset.genGuide.split(':');
-      generateGuideItem(verId, itemId);
-    });
-  });
-
-  // 가이드 비활성화 토글
-  document.querySelectorAll('[data-toggle-guide]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const [verId, itemId] = btn.dataset.toggleGuide.split(':');
-      const verIdx = AppState.versions.findIndex(v => v.id === verId);
-      if (verIdx !== -1) {
-        const itemIdx = AppState.versions[verIdx].guideItems.findIndex(i => i.id === itemId);
-        if (itemIdx !== -1) {
-          AppState.versions[verIdx].guideItems[itemIdx].enabled = !AppState.versions[verIdx].guideItems[itemIdx].enabled;
-          render(); debouncedSave();
-        }
-      }
-    });
-  });
-
-  // 프롬프트 토글 (가이드)
-  document.querySelectorAll('[data-toggle-prompt]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const key = btn.dataset.togglePrompt;
-      const [verId, itemId] = key.split(':');
-      const area = document.getElementById(`prompt-area-${verId}-${itemId}`);
-      if (area) area.classList.toggle('open');
-    });
-  });
-
-  // 프롬프트 적용 (가이드)
-  document.querySelectorAll('[data-apply-prompt]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const key = btn.dataset.applyPrompt;
-      const [verId, itemId] = key.split(':');
-      const ta = document.querySelector(`[data-prompt-ta="${key}"]`);
-      if (!ta) return;
-      const verIdx = AppState.versions.findIndex(v => v.id === verId);
-      if (verIdx !== -1) {
-        const itemIdx = AppState.versions[verIdx].guideItems.findIndex(i => i.id === itemId);
-        if (itemIdx !== -1) AppState.versions[verIdx].guideItems[itemIdx].editedPrompt = ta.value;
-      }
-      generateGuideItem(verId, itemId, ta.value);
-    });
-  });
-
-  // Step 3: 제작 목록 토글
-  document.querySelectorAll('[data-toggle-prod]').forEach(el => {
-    el.addEventListener('click', e => {
-      if (e.target.dataset.delProd) return;
-      const id = el.dataset.toggleProd;
-      const idx = AppState.productionList.findIndex(i => i.id === id);
-      if (idx !== -1) { AppState.productionList[idx].enabled = !AppState.productionList[idx].enabled; render(); debouncedSave(); }
-    });
-  });
-
-  // 전체 선택/해제
-  document.getElementById('selectAllBtn')?.addEventListener('click', () => { AppState.productionList.forEach(i => i.enabled = true); render(); debouncedSave(); });
-  document.getElementById('deselectAllBtn')?.addEventListener('click', () => { AppState.productionList.forEach(i => i.enabled = false); render(); debouncedSave(); });
-
-  // 커스텀 항목 추가
-  document.getElementById('addCustomBtn')?.addEventListener('click', () => {
-    const name = document.getElementById('customName')?.value.trim();
-    const ratio = document.getElementById('customRatio')?.value.trim();
-    const pixels = document.getElementById('customPixels')?.value.trim();
-    if (!name) { showToast('이름을 입력해주세요', 'warn'); return; }
-    AppState.productionList.push({ id: 'custom_' + Date.now(), name, ratio: ratio || '1:1', pixels: pixels || null, enabled: true });
-    render(); debouncedSave();
-  });
-
-  // 커스텀 항목 삭제
-  document.querySelectorAll('[data-del-prod]').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      const id = btn.dataset.delProd;
-      AppState.productionList = AppState.productionList.filter(i => i.id !== id);
-      render(); debouncedSave();
-    });
-  });
-
-  // 제작 계획 생성
-  document.getElementById('genPlanBtn')?.addEventListener('click', generateProductionPlan);
-
-  // 전체 이미지 생성
-  document.getElementById('genAllProdBtn')?.addEventListener('click', generateAllProductions);
-
-  // ZIP 다운로드
-  document.getElementById('downloadZipBtn')?.addEventListener('click', downloadAllAsZip);
-
-  // 제작물 개별 생성
-  document.querySelectorAll('[data-gen-prod]').forEach(btn => {
-    btn.addEventListener('click', () => generateProductionImage(btn.dataset.genProd));
-  });
-
-  // 프롬프트 토글 (제작물)
-  document.querySelectorAll('[data-toggle-prod-prompt]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const area = document.getElementById('prod-prompt-area-' + btn.dataset.toggleProdPrompt);
-      if (area) area.classList.toggle('open');
-    });
-  });
-
-  // 프롬프트 적용 (제작물)
-  document.querySelectorAll('[data-apply-prod-prompt]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const id = btn.dataset.applyProdPrompt;
-      const ta = document.querySelector(`[data-prod-prompt-ta="${id}"]`);
-      if (!ta) return;
-      const idx = AppState.productions.findIndex(p => p.id === id);
-      if (idx !== -1) AppState.productions[idx].editedPrompt = ta.value;
-      generateProductionImage(id, ta.value);
-    });
-  });
-
-  // 대지 버전 생성
-  document.querySelectorAll('[data-gen-notext]').forEach(btn => {
-    btn.addEventListener('click', () => generateNoTextVersion(btn.dataset.genNotext));
-  });
-
-  // 원본/대지 탭 전환
-  document.querySelectorAll('[data-img-tab]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const prodId = btn.dataset.imgTab;
-      const tab = btn.dataset.tab;
-      const idx = AppState.productions.findIndex(p => p.id === prodId);
-      if (idx !== -1) {
-        AppState.productions[idx]._showNoText = (tab === 'notext');
-        updateProdCard(prodId);
-        document.querySelectorAll(`[data-img-tab="${prodId}"]`).forEach(b => {
-          const isActive = b.dataset.tab === tab;
-          b.className = `btn btn-sm ${isActive ? '' : 'btn-ghost'}`;
-          b.style.cssText = 'font-size:11px;padding:4px 10px';
-        });
-      }
-    });
+  document.getElementById('importFileInput')?.addEventListener('change', async function() {
+    if (this.files[0]) await importProject(this.files[0]);
   });
 }
 
@@ -3606,9 +3633,8 @@ function bindEvents() {
 async function handleImageUpload(files, type) {
   const key = type === 'ci' ? 'ciImages' : 'referenceImages';
   const current = AppState.input[key];
-  const max = 8;
-  const remaining = max - current.length;
-  if (remaining <= 0) { showToast(`최대 ${max}장까지 업로드 가능합니다`, 'warn'); return; }
+  const remaining = MAX_IMAGES - current.length;
+  if (remaining <= 0) { showToast(`최대 ${MAX_IMAGES}장까지 업로드 가능합니다`, 'warn'); return; }
 
   const toProcess = Array.from(files).slice(0, remaining);
   for (const file of toProcess) {
@@ -3631,6 +3657,14 @@ async function handleImageUpload(files, type) {
 // ════════════════════════════════════════════════════════════
 
 async function initApp() {
+  setupDelegatedEvents();
+
+  // Check IndexedDB availability (private browsing may block it)
+  if (!window.indexedDB) {
+    console.warn('IndexedDB unavailable — data will not persist');
+    render(); return;
+  }
+
   try {
     const settings = await loadSettings();
     if (settings.apiKey) AppState.apiKey = settings.apiKey;
@@ -3645,7 +3679,6 @@ async function initApp() {
         AppState._projectListOpen = false;
         AppState._projectList = [];
         AppState._refAnalysis = null;
-        // activeVersionId 없으면 첫 버전으로 설정
         if (!AppState.activeVersionId && AppState.versions?.length > 0) {
           AppState.activeVersionId = AppState.versions[0].id;
         }
@@ -3654,6 +3687,7 @@ async function initApp() {
     }
   } catch (e) {
     console.warn('초기화 중 오류:', e);
+    addLog('저장소 초기화 실패 — 데이터가 유지되지 않을 수 있습니다', 'warn');
   }
   render();
 

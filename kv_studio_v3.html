@@ -1505,10 +1505,11 @@ const debouncedSave = debounce(async () => {
 // [C] Gemini API
 // ════════════════════════════════════════════════════════════
 
-async function callGemini(contents, wantImage = false) {
+async function callGemini(contents, wantImage = false, systemInstruction = null) {
   if (!AppState.apiKey) throw new Error('API 키를 입력해주세요');
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${AppState.model}:generateContent`;
   const body = { contents: [{ parts: contents }], generationConfig: {} };
+  if (systemInstruction) body.system_instruction = { parts: [{ text: systemInstruction }] };
   if (wantImage) body.generationConfig.responseModalities = ['TEXT', 'IMAGE'];
 
   const res = await fetch(url, {
@@ -1547,13 +1548,14 @@ function parseGeminiJSON(text) {
   }
 }
 
-async function callGeminiMultiTurn(history, newParts, wantImage = false) {
+async function callGeminiMultiTurn(history, newParts, wantImage = false, systemInstruction = null) {
   if (!AppState.apiKey) throw new Error('API 키를 입력해주세요');
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${AppState.model}:generateContent`;
   const body = {
     contents: [...history, { role: 'user', parts: newParts }],
     generationConfig: {}
   };
+  if (systemInstruction) body.system_instruction = { parts: [{ text: systemInstruction }] };
   if (wantImage) body.generationConfig.responseModalities = ['TEXT', 'IMAGE'];
 
   const res = await fetch(url, {
@@ -1578,14 +1580,14 @@ async function callGeminiMultiTurn(history, newParts, wantImage = false) {
 
 async function extractCiPdf(file) {
   const base64 = await fileToBase64(file);
-  const prompt = `이 CI 가이드 PDF에서 다음 정보를 추출해줘:
+  const sysInstruction = `너는 CI(Corporate Identity) 가이드 문서 분석 전문가야. 첨부된 PDF에서 브랜드 디자인 요소를 추출하여 JSON으로 정리한다. JSON 외 다른 텍스트는 출력하지 마라.`;
+  const userPrompt = `아래 항목을 추출해줘:
 - 브랜드 컬러 코드 (HEX/RGB)
 - 로고 사용 규정
 - 지정 폰트
-- 기타 디자인 가이드라인
-JSON으로 정리해서 출력.`;
-  const parts = [{ inlineData: { mimeType: 'application/pdf', data: base64 } }, { text: prompt }];
-  const result = await callGemini(parts, false);
+- 기타 디자인 가이드라인`;
+  const parts = [{ inlineData: { mimeType: 'application/pdf', data: base64 } }, { text: userPrompt }];
+  const result = await callGemini(parts, false, sysInstruction);
   const text = result.map(p => p.text || '').join('');
   AppState.input.ciPdfFile = { name: file.name, base64 };
   AppState.input.ciPdfExtractedText = text;
@@ -1594,13 +1596,10 @@ JSON으로 정리해서 출력.`;
 
 async function analyzeReferences(refImages) {
   if (refImages.length === 0) return null;
-  const prompt = `너는 비주얼 디자인 분석 전문가야.
-첨부된 ${refImages.length}장의 레퍼런스 이미지에서 공통 디자인 경향성을 JSON으로 추출해줘.
-분석 항목: color_tendency, typography_tendency, layout_tendency, graphic_tendency, mood_tendency(키워드 3-5개), consistency_notes
-JSON만 출력.`;
+  const sysInstruction = `너는 비주얼 디자인 분석 전문가야. 첨부된 레퍼런스 이미지들의 공통 디자인 경향성을 JSON으로 추출한다. 분석 항목: color_tendency, typography_tendency, layout_tendency, graphic_tendency, mood_tendency(키워드 3-5개), consistency_notes. JSON만 출력.`;
   const parts = refImages.map(img => ({ inlineData: { mimeType: img.mime, data: img.base64 } }));
-  parts.push({ text: prompt });
-  const result = await callGemini(parts, false);
+  parts.push({ text: `${refImages.length}장의 레퍼런스 이미지를 분석해줘.` });
+  const result = await callGemini(parts, false, sysInstruction);
   return parseGeminiJSON(result.map(p => p.text || '').join(''));
 }
 
@@ -1608,18 +1607,11 @@ async function callGenerateGuideline(diversityHint = '') {
   const { eventInfo, ciImages, ciPdfExtractedText, styleOverride } = AppState.input;
   const refAnalysis = AppState._refAnalysis;
 
-  const prompt = `너는 행사 브랜딩 전문 디자이너야.
-아래 입력을 바탕으로 디자인 가이드라인을 JSON으로 생성해줘.
+  const sysInstruction = `너는 행사 브랜딩 전문 디자이너야.
+사용자가 제공하는 행사 정보, CI 자료, 레퍼런스 분석, 스타일 지시를 바탕으로 디자인 가이드라인을 생성한다.
+반드시 아래 JSON 스키마에 맞춰 출력하고, JSON 외 다른 텍스트는 절대 포함하지 마라.
 
-## 행사 정보
-${eventInfo}
-${ciPdfExtractedText ? `\n## CI 가이드 (PDF 추출)\n${ciPdfExtractedText}` : ''}
-${refAnalysis ? `\n## 레퍼런스 경향성 분석\n${JSON.stringify(refAnalysis, null, 2)}\n${ciImages.length > 0 ? '→ CI 브랜드 아이덴티티를 우선하되, 위 경향성을 분위기·레이아웃·스타일에 반영.' : '→ CI 없음. 위 경향성을 가이드라인의 주요 소스로 활용.'}` : ''}
-${styleOverride ? `\n## 추가 스타일 지시\n${styleOverride}` : ''}
-${ciImages.length > 0 ? `\n## CI 이미지\n${ciImages.length}장 첨부됨. 로고·컬러·스타일 분석하여 반영.` : ''}
-${diversityHint}
-
-## 출력 형식 (JSON만, 다른 텍스트 금지)
+출력 스키마:
 {
   "event_summary": { "name": "", "name_en": "", "date": "", "venue": "", "organizer": "", "theme": "", "slogan": "" },
   "color_palette": {
@@ -1647,10 +1639,22 @@ ${diversityHint}
   ]
 }`;
 
-  const parts = ciImages.map(img => ({ inlineData: { mimeType: img.mime, data: img.base64 } }));
-  parts.push({ text: prompt });
+  const dataSections = [`## 행사 정보\n${eventInfo}`];
+  if (ciPdfExtractedText) dataSections.push(`## CI 가이드 (PDF 추출)\n${ciPdfExtractedText}`);
+  if (refAnalysis) {
+    const refNote = ciImages.length > 0
+      ? 'CI 브랜드 아이덴티티를 우선하되, 아래 경향성을 분위기·레이아웃·스타일에 반영.'
+      : 'CI 없음. 아래 경향성을 가이드라인의 주요 소스로 활용.';
+    dataSections.push(`## 레퍼런스 경향성 분석\n${refNote}\n${JSON.stringify(refAnalysis, null, 2)}`);
+  }
+  if (styleOverride) dataSections.push(`## 추가 스타일 지시\n${styleOverride}`);
+  if (ciImages.length > 0) dataSections.push(`## CI 이미지\n${ciImages.length}장 첨부됨. 로고·컬러·스타일 분석하여 반영.`);
+  if (diversityHint) dataSections.push(diversityHint);
 
-  const result = await callGemini(parts, false);
+  const parts = ciImages.map(img => ({ inlineData: { mimeType: img.mime, data: img.base64 } }));
+  parts.push({ text: dataSections.join('\n\n') });
+
+  const result = await callGemini(parts, false, sysInstruction);
   return parseGeminiJSON(result.map(p => p.text || '').join(''));
 }
 
@@ -1753,13 +1757,53 @@ function toggleVersionPdfSelect(verId) {
 // [E] Step 2 로직
 // ════════════════════════════════════════════════════════════
 
+function extractGuideFieldsForItem(guideline, itemId) {
+  const g = guideline;
+  const fields = {};
+  switch (itemId) {
+    case 'color_palette_sheet':
+      fields.color_palette = g.color_palette;
+      fields.mood = g.mood;
+      break;
+    case 'typography_sheet':
+      fields.typography = g.typography;
+      fields.color_palette = { primary: g.color_palette?.primary, background: g.color_palette?.background, text_dark: g.color_palette?.text_dark };
+      break;
+    case 'motif_board':
+      fields.graphic_motifs = g.graphic_motifs;
+      fields.color_palette = g.color_palette;
+      fields.mood = g.mood;
+      break;
+    case 'layout_sketches':
+      fields.layout_guide = g.layout_guide;
+      fields.event_summary = { name: g.event_summary?.name, name_en: g.event_summary?.name_en };
+      break;
+    case 'logo_usage_sheet':
+      fields.logo_usage = g.logo_usage;
+      fields.color_palette = { primary: g.color_palette?.primary, background: g.color_palette?.background };
+      break;
+    case 'mood_board':
+      fields.mood = g.mood;
+      fields.color_palette = g.color_palette;
+      fields.graphic_motifs = g.graphic_motifs;
+      fields.event_summary = { name: g.event_summary?.name, theme: g.event_summary?.theme };
+      break;
+    default:
+      fields.color_palette = g.color_palette;
+      fields.typography = g.typography;
+      fields.graphic_motifs = g.graphic_motifs;
+      fields.mood = g.mood;
+  }
+  return fields;
+}
+
 function buildGuideItemPrompt(guideline, item) {
-  return `You are a brand design system specialist.
-Create a visual reference for: "${item.label}"
+  const relevantFields = extractGuideFieldsForItem(guideline, item.id);
+  return `Create a visual reference for: "${item.label}"
 Description: ${item.description}
 
-DESIGN GUIDELINE:
-${JSON.stringify(guideline, null, 2)}
+RELEVANT DESIGN DATA:
+${JSON.stringify(relevantFields, null, 2)}
 
 INSTRUCTION:
 - If best communicated as a VISUAL, generate an IMAGE.
@@ -1783,11 +1827,12 @@ async function generateGuideItem(verId, itemId, editedPrompt = null) {
   const prompt = editedPrompt || item.editedPrompt || buildGuideItemPrompt(ver.guideline, item);
   AppState.versions[verIdx].guideItems[itemIdx].prompt = prompt;
 
+  const guideItemSys = 'You are a brand design system specialist. You create professional visual references and design guide sheets for event branding systems.';
   const parts = AppState.input.ciImages.map(img => ({ inlineData: { mimeType: img.mime, data: img.base64 } }));
   parts.push({ text: prompt });
 
   try {
-    const result = await callGemini(parts, true);
+    const result = await callGemini(parts, true, guideItemSys);
     let imageData = null, textData = null;
     for (const part of result) {
       if (part.inlineData) imageData = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
@@ -1880,34 +1925,60 @@ function findBestLayoutMatch(productionName, layoutGuide) {
 
 const PRINT_SPEC_INSTRUCTION = 'Production-ready print artwork for direct delivery to print vendor. Flat graphic design layout only. No 3D rendering, no environmental context, no mockup perspective, no scene background, no props. Output must be the actual artwork as it would appear on the final printed/produced item.';
 
+function extractDesignSystemForProduction(guideline, prodName) {
+  const g = guideline;
+  const colors = g.color_palette || {};
+  const typo = g.typography || {};
+  const motifs = g.graphic_motifs || {};
+  const layoutKey = findBestLayoutMatch(prodName, g.layout_guide);
+  return {
+    colors: {
+      primary: colors.primary?.hex,
+      secondary: colors.secondary?.hex,
+      accent: colors.accent?.hex,
+      background: colors.background?.hex,
+      text_dark: colors.text_dark?.hex,
+      text_light: colors.text_light?.hex
+    },
+    typography: {
+      headline: `${typo.headline?.font || ''} ${typo.headline?.size_range || ''}`.trim(),
+      subheading: `${typo.subheading?.font || ''} ${typo.subheading?.size_range || ''}`.trim(),
+      body: `${typo.body?.font || ''} ${typo.body?.size_range || ''}`.trim()
+    },
+    graphic_style: motifs.style || '',
+    graphic_elements: motifs.elements || [],
+    texture: motifs.texture || '',
+    icon_style: motifs.icon_style || '',
+    mood_tone: g.mood?.tone || '',
+    mood_keywords: g.mood?.keywords || [],
+    layout_guide: layoutKey ? g.layout_guide[layoutKey] : null,
+    logo: g.logo_usage || null
+  };
+}
+
 function buildProductionPrompt(prod) {
   const ver = getSelectedVersion();
   if (!ver) return '';
   const g = ver.guideline;
   const event = g.event_summary;
-  const colors = g.color_palette;
-  const typo = g.typography;
-  const motifs = g.graphic_motifs;
-  const mood = g.mood;
-  const layoutKey = findBestLayoutMatch(prod.name, g.layout_guide);
-  const layoutGuide = layoutKey ? g.layout_guide[layoutKey] : '';
+  const ds = extractDesignSystemForProduction(g, prod.name);
+
+  const colorLine = Object.entries(ds.colors).filter(([,v]) => v).map(([k,v]) => `${k}: ${v}`).join(', ');
+  const elemLine = ds.graphic_elements.length > 0 ? ds.graphic_elements.join(', ') : '';
+
   return `Professional event graphic design. Production-ready.
 Aspect ratio: ${prod.pixels || prod.ratio}.
 Type: ${prod.name}
 
-EVENT INFO:
-Name: "${event.name}"${event.name_en ? ` / "${event.name_en}"` : ''}
-Date: ${event.date || ''}
-Venue: ${event.venue || ''}
-Organizer: ${event.organizer || ''}
-${event.slogan ? `Slogan: "${event.slogan}"` : ''}
+EVENT: "${event.name}"${event.name_en ? ` / "${event.name_en}"` : ''}${event.date ? `, ${event.date}` : ''}${event.venue ? `, ${event.venue}` : ''}${event.organizer ? `, ${event.organizer}` : ''}${event.slogan ? ` — "${event.slogan}"` : ''}
 
 DESIGN SYSTEM:
-Colors — Primary: ${colors.primary?.hex} (${colors.primary?.usage}), Secondary: ${colors.secondary?.hex}, Accent: ${colors.accent?.hex}
-Typography — Headline: ${typo.headline?.font} ${typo.headline?.size_range}, Body: ${typo.body?.font}
-Graphic style: ${motifs.style}. Elements: ${(motifs.elements || []).join(', ')}.
-Mood: ${mood.tone}
-${layoutGuide ? `\nLAYOUT: ${layoutGuide}` : ''}
+Colors — ${colorLine}
+Typography — Headline: ${ds.typography.headline}, Sub: ${ds.typography.subheading}, Body: ${ds.typography.body}
+Style: ${ds.graphic_style}${elemLine ? `. Elements: ${elemLine}` : ''}${ds.texture ? `. Texture: ${ds.texture}` : ''}${ds.icon_style ? `. Icons: ${ds.icon_style}` : ''}
+Mood: ${ds.mood_tone}${ds.mood_keywords.length > 0 ? ` (${ds.mood_keywords.join(', ')})` : ''}
+${ds.layout_guide ? `Layout: ${ds.layout_guide}` : ''}
+${ds.logo ? `Logo: placement ${ds.logo.primary_placement || 'auto'}, clear-space ${ds.logo.clear_space || 'auto'}` : ''}
 ${prod.headline ? `\nHEADLINE TEXT: "${prod.headline}"` : ''}
 ${prod.subtext ? `SUBTEXT: "${prod.subtext}"` : ''}
 ${prod.layoutNote ? `LAYOUT NOTE: ${prod.layoutNote}` : ''}
@@ -1937,19 +2008,11 @@ async function generateProductionPlan() {
     AppState.isProcessing = false; render(); return;
   }
 
-  const prompt = `너는 행사 그래픽 디자인 전문가야.
-아래 행사 개요, 디자인 가이드라인, 제작 목록을 바탕으로 각 제작물의 상세 생성 계획을 JSON으로 만들어줘.
+  const planSysInstruction = `너는 행사 그래픽 디자인 전문가야.
+사용자가 제공하는 행사 개요, 디자인 가이드라인, 제작 목록을 바탕으로 각 제작물의 상세 생성 계획을 만든다.
+반드시 아래 JSON 스키마로만 출력하고, 다른 텍스트는 절대 포함하지 마라.
 
-## 행사 개요
-"${AppState.input.eventInfo}"
-
-## 디자인 가이드라인
-${JSON.stringify(ver.guideline, null, 2)}
-
-## 제작 목록
-${enabled.map((item, i) => `${i+1}. ${item.name} — ${item.pixels || item.ratio}`).join('\n')}
-
-각 제작물에 대해 아래 JSON으로 출력. 다른 텍스트 금지.
+출력 스키마:
 {
   "outputs": [
     {
@@ -1959,16 +2022,29 @@ ${enabled.map((item, i) => `${i+1}. ${item.name} — ${item.pixels || item.ratio
       "headline": "메인 카피 (실제 행사 내용, 플레이스홀더 금지)",
       "subtext": "서브 카피 (null 가능)",
       "layout_note": "레이아웃 설명 (한국어)",
-      "image_prompt": "Gemini 이미지 생성 프롬프트 (영어, 상세)"
+      "image_prompt": "Gemini 이미지 생성 프롬프트 (영어, 상세하게. 디자인 시스템의 컬러·모티프·무드를 반영)"
     }
   ]
 }`;
 
+  const g = ver.guideline;
+  const planData = {
+    event: g.event_summary,
+    design_system: {
+      color_palette: g.color_palette,
+      typography: g.typography,
+      graphic_motifs: g.graphic_motifs,
+      mood: g.mood,
+      layout_guide: g.layout_guide
+    },
+    production_list: enabled.map((item, i) => ({ num: i + 1, name: item.name, size: item.pixels || item.ratio }))
+  };
+
   const parts = AppState.input.ciImages.map(img => ({ inlineData: { mimeType: img.mime, data: img.base64 } }));
-  parts.push({ text: prompt });
+  parts.push({ text: JSON.stringify(planData, null, 2) });
 
   try {
-    const result = await callGemini(parts, false);
+    const result = await callGemini(parts, false, planSysInstruction);
     const plan = parseGeminiJSON(result.map(p => p.text || '').join(''));
     AppState.productionPlan = plan;
 
@@ -2042,10 +2118,11 @@ async function generateProductionImage(prodId, editedPrompt = null) {
   const MAX_REF = MAX_REFERENCES;
   const trimmedImgParts = imgParts.slice(0, MAX_REF);
   if (imgParts.length > MAX_REF) addLog(`⚠️ 레퍼런스 이미지 ${MAX_REF}장으로 제한됨`, 'warn');
+  const prodSysInstruction = 'You are a professional event graphic designer. Generate production-ready artwork based on the provided design system and specifications. Output only the image.';
   trimmedImgParts.push({ text: prompt });
 
   try {
-    const result = await callGemini(trimmedImgParts, true);
+    const result = await callGemini(trimmedImgParts, true, prodSysInstruction);
     const thoughtPart = result.find(p => p.thoughtSignature);
     if (thoughtPart) AppState.productions[idx].noTextThoughtSignature = thoughtPart.thoughtSignature;
 
@@ -2109,8 +2186,9 @@ async function generateNoTextVersion(prodId) {
       ];
     }
 
+    const noTextSys = 'You are an image editor specializing in text removal. You preserve all visual elements — background, graphics, layout, colors, textures — while removing only text and typographic elements.';
     const removeTextPrompt = `Remove ALL text, typography, labels, captions, headlines, logos with text, and any written characters from the image. Keep the entire background, graphic elements, layout composition, colors, shapes, textures, and decorative elements completely identical. Return only the background/canvas version with zero text.`;
-    const modelContent = await callGeminiMultiTurn(history, [{ text: removeTextPrompt }], true);
+    const modelContent = await callGeminiMultiTurn(history, [{ text: removeTextPrompt }], true, noTextSys);
 
     const thoughtPart = modelContent.parts.find(p => p.thoughtSignature);
     if (thoughtPart) AppState.productions[idx].noTextThoughtSignature = thoughtPart.thoughtSignature;

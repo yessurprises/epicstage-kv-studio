@@ -2,16 +2,12 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useStore } from "./use-store";
+import { CHAT_URL } from "./config";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
 }
-
-const API_BASE = "https://epic-studio-api.pd-302.workers.dev";
-const isLocal = () =>
-  typeof window !== "undefined" && window.location.hostname === "localhost";
-const CHAT_URL = () => isLocal() ? "/api/chat/" : `${API_BASE}/api/chat`;
 
 export default function ChatPanel({ guideline }: { guideline?: any }) {
   const [messages, setMessages] = useState<Message[]>([]);

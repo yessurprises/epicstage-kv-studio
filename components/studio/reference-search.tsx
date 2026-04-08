@@ -3,6 +3,8 @@
 import { useRef, useState } from "react";
 import { useStore } from "./use-store";
 import { EVENT_TYPES } from "./constants";
+import { analyzeRefs } from "./guideline-generator";
+import { isLocal, SEARCH_URL } from "./config";
 
 interface RefResult {
   title: string;
@@ -52,10 +54,13 @@ export default function ReferenceSearch({
     setError("");
     try {
       const searchQuery = eventType ? `${eventType} ${query}` : query;
-      const resp = await fetch("/api/search/", {
+      const body = isLocal()
+        ? { query: searchQuery, limit: 30 }
+        : { event_type: eventType || undefined, theme_keywords: searchQuery.split(/\s+/).filter(Boolean), count: 30 };
+      const resp = await fetch(SEARCH_URL(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: searchQuery, limit: 30 }),
+        body: JSON.stringify(body),
       });
       if (!resp.ok) throw new Error(`검색 실패: ${resp.status}`);
       const data = await resp.json();
@@ -89,18 +94,9 @@ export default function ReferenceSearch({
     setAnalyzing(true);
     setError("");
     try {
-      const resp = await fetch("/api/analyze-refs/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          images: refFiles.map((f) => ({ mime: f.mime, base64: f.base64 })),
-        }),
-      });
-      if (!resp.ok) throw new Error(`분석 실패: ${resp.status}`);
-      const data = await resp.json();
-      const analysis = typeof data.analysis === "object"
-        ? JSON.stringify(data.analysis, null, 2)
-        : data.analysis;
+      const analysis = await analyzeRefs(
+        refFiles.map((f) => ({ mime: f.mime, base64: f.base64 }))
+      );
       setRefAnalysis(analysis);
     } catch (e: any) {
       setError(e.message);

@@ -1,13 +1,5 @@
 import type { Guideline, Version, ProductionPlanItem } from "./use-store";
-
-const API_BASE = "https://epic-studio-api.pd-302.workers.dev";
-
-const isLocal = () =>
-  typeof window !== "undefined" && window.location.hostname === "localhost";
-
-// dev: Next.js proxy, prod: Worker 직접
-const CHAT_URL = () => isLocal() ? "/api/chat/" : `${API_BASE}/api/chat`;
-const IMAGE_URL = () => isLocal() ? "/api/generate-image/" : `${API_BASE}/api/generate`;
+import { API_BASE, isLocal, CHAT_URL, IMAGE_URL } from "./config";
 
 // ─── 시스템 인스트럭션 ────────────────────────────────────────────────────
 
@@ -170,6 +162,59 @@ Style: ${m.style}${m.elements?.length ? `. Elements: ${m.elements.join(", ")}` :
 Mood: ${mood.tone}${mood.keywords?.length ? ` (${mood.keywords.join(", ")})` : ""}
 ${layoutGuide ? `Layout: ${layoutGuide}` : ""}
 ${g.logo_usage ? `Logo: placement ${g.logo_usage.primary_placement || "auto"}, clear-space ${g.logo_usage.clear_space || "auto"}` : ""}`;
+}
+
+// ─── 레퍼런스 분석 ───────────────────────────────────────────────────────────
+
+const ANALYZE_REFS_SYSTEM = `너는 비주얼 디자인 분석 전문가야.
+첨부된 레퍼런스 이미지들의 공통 디자인 경향성을 JSON으로 추출한다.
+분석 항목: color_tendency, typography_tendency, layout_tendency, graphic_tendency, mood_tendency(키워드 3-5개), consistency_notes.
+JSON만 출력.`;
+
+export async function analyzeRefs(
+  images: Array<{ mime: string; base64: string }>
+): Promise<string> {
+  if (isLocal()) {
+    const resp = await fetch("/api/analyze-refs/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ images }),
+    });
+    if (!resp.ok) throw new Error(`분석 실패: ${resp.status}`);
+    const data = await resp.json();
+    return typeof data.analysis === "object"
+      ? JSON.stringify(data.analysis, null, 2)
+      : data.analysis;
+  }
+
+  // prod: Worker의 generate 엔드포인트 직접 호출
+  const parts: any[] = images.slice(0, 8).map((img) => ({
+    inlineData: { mimeType: img.mime, data: img.base64 },
+  }));
+  parts.push({ text: `${ANALYZE_REFS_SYSTEM}\n\n${images.length}장의 레퍼런스 이미지를 분석해줘.` });
+
+  const resp = await fetch(`${API_BASE}/api/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "gemini-3.1-flash-image-preview",
+      contents: [{ role: "user", parts }],
+      generationConfig: { temperature: 0.3 },
+    }),
+  });
+  if (!resp.ok) throw new Error(`분석 실패: ${resp.status}`);
+  const data = await resp.json() as any;
+  const text: string = (data?.candidates?.[0]?.content?.parts ?? [])
+    .filter((p: any) => p.text)
+    .map((p: any) => p.text as string)
+    .join("");
+
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start !== -1 && end !== -1) {
+    try { return JSON.stringify(JSON.parse(text.substring(start, end + 1)), null, 2); } catch {}
+  }
+  return text;
 }
 
 // ─── 스타일 지시 정제 ─────────────────────────────────────────────────────────

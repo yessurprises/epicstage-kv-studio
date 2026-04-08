@@ -1,7 +1,7 @@
 "use client";
 
 import { useStore } from "./use-store";
-import { generateGuideline, createVersion } from "./guideline-generator";
+import { generateGuideline, createVersion, analyzeRefs } from "./guideline-generator";
 import { generateGuidelinePdf, downloadAsZip } from "./export-utils";
 import TierSelector from "./tier-selector";
 import EventInput from "./event-input";
@@ -40,16 +40,12 @@ export default function StudioApp() {
       let analysis = currentAnalysis;
       if (refFiles.length > 0 && !analysis) {
         addLog("레퍼런스 이미지 분석 중...");
-        const resp = await fetch("/api/analyze-refs/", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ images: refFiles.map((f) => ({ mime: f.mime, base64: f.base64 })) }),
-        });
-        if (resp.ok) {
-          const data = await resp.json();
-          analysis = typeof data.analysis === "object" ? JSON.stringify(data.analysis, null, 2) : data.analysis;
+        try {
+          analysis = await analyzeRefs(refFiles.map((f) => ({ mime: f.mime, base64: f.base64 })));
           setRefAnalysis(analysis);
           addLog("레퍼런스 분석 완료", "ok");
+        } catch (e: any) {
+          addLog(`레퍼런스 분석 실패: ${e.message}`, "err");
         }
       }
 

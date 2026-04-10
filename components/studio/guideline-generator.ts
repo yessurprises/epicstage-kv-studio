@@ -27,10 +27,8 @@ const GUIDELINE_SYSTEM = `너는 행사 브랜딩 전문 디자이너야.
   "mood": { "keywords": [], "tone": "" },
   "guide_items_to_visualize": [
     { "id": "color_palette_sheet", "label": "컬러 팔레트 시트", "description": "6색 팔레트 + 사용처 표기" },
-    { "id": "typography_sheet", "label": "타이포그래피 가이드 시트", "description": "폰트 패밀리 + 사이즈 시스템" },
     { "id": "motif_board", "label": "그래픽 모티프 보드", "description": "패턴, 텍스처, 아이콘 스타일" },
     { "id": "layout_sketches", "label": "레이아웃 가이드 스케치", "description": "KV, 배너, SNS 레이아웃 구성" },
-    { "id": "logo_usage_sheet", "label": "로고 사용 가이드", "description": "배치, 최소 크기, 여백 규정" },
     { "id": "mood_board", "label": "무드 보드", "description": "전체 분위기 시각화" }
   ]
 }`;

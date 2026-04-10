@@ -16,15 +16,15 @@ NAVER_CLIENT_SECRET = "CaobHiLxKw"
 [[d1_databases]]
 binding = "EPIC_DB"
 database_name = "epic-studio-db"
-database_id = "d9d2f91e-0303-4479-bfac-91da125a3695"
+database_id = "9e459cd2-932a-4587-a904-6b3f1ee9edb9"
 
-[[r2_buckets]]
-binding = "EPIC_STORAGE"
-bucket_name = "epic-studio-storage"
+# [[r2_buckets]]
+# binding = "EPIC_STORAGE"
+# bucket_name = "epic-studio-storage"
 
 [[kv_namespaces]]
 binding = "EPIC_KV"
-id = "05f16e431a68467ca7c0dfc31ad9f77c"
+id = "6e34623895324df0967ff142bc2019b8"
 
 [dev]
 port = 8787

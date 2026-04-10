@@ -28,6 +28,7 @@ app.use(
       "http://localhost:5173",
       "http://localhost:3000",
       "https://epic-studio.epicstage.co.kr",
+      "https://epic-studio-cpb.pages.dev",
     ],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
@@ -429,58 +430,74 @@ app.post("/api/upscale", async (c) => {
   });
 });
 
-// ─── Agent Chat (Gemini conversation proxy) ─────────────────────────────────
+// ─── Agent Chat (Gemini multimodal conversation proxy) ──────────────────────
+// {system, messages, ciImages, ciDocs} 형식 수신 → Gemini contents 형식으로 변환
+// local dev: Next.js /api/chat/ 프록시가 동일 변환 수행
+// prod (static export): 이 Worker 엔드포인트가 직접 처리
 
 app.post("/api/chat", async (c) => {
-  const apiKey = c.env.OPENROUTER_API_KEY || c.env.GEMINI_API_KEY;
+  const apiKey = c.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new HTTPException(500, { message: "API key not configured" });
+    throw new HTTPException(500, { message: "GEMINI_API_KEY not configured" });
   }
 
-  const { messages, context, system } = await c.req.json<{
+  const { messages, system, ciImages, ciDocs } = await c.req.json<{
     messages: Array<{ role: string; content: string }>;
-    context?: { guideline?: any; references?: any[] };
     system?: string;
+    ciImages?: Array<{ mime: string; base64: string }>;
+    ciDocs?: Array<{ mime: string; base64: string; name?: string }>;
   }>();
 
   if (!messages?.length) {
     throw new HTTPException(400, { message: "messages required" });
   }
 
-  const systemPrompt = system ?? `You are Epic-Studio AI assistant, an expert event design consultant.
-You help users refine their event visual designs. You speak Korean naturally.
-${context?.guideline ? `Current design guideline: ${JSON.stringify(context.guideline)}` : ""}
-${context?.references?.length ? `Selected reference styles: ${JSON.stringify(context.references)}` : ""}
-Give specific, actionable design suggestions. Be concise.`;
+  // Gemini contents 구성 — CI 이미지·문서를 첫 번째 user parts에 포함
+  const contents = messages.map((m, i) => {
+    const parts: any[] = [];
+    if (i === 0 && m.role === "user") {
+      if (ciImages?.length) {
+        for (const img of ciImages.slice(0, 3)) {
+          parts.push({ inlineData: { mimeType: img.mime, data: img.base64 } });
+        }
+      }
+      if (ciDocs?.length) {
+        for (const doc of ciDocs.slice(0, 5)) {
+          parts.push({ inlineData: { mimeType: doc.mime, data: doc.base64 } });
+        }
+      }
+    }
+    const text = i === 0 && m.role === "user" && system
+      ? `${system}\n\n---\n\n${m.content}`
+      : m.content;
+    parts.push({ text });
+    return {
+      role: m.role === "assistant" ? "model" : "user",
+      parts,
+    };
+  });
 
-  const chatMessages = [
-    { role: "system", content: systemPrompt },
-    ...messages.map((m) => ({ role: m.role, content: m.content })),
-  ];
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=${apiKey}`;
 
-  const response = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+  const response = await fetch(geminiUrl, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
-      "HTTP-Referer": "https://epic-studio.epicstage.co.kr",
-      "X-Title": "Epic-Studio",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "google/gemini-2.0-flash-001",
-      messages: chatMessages,
-      temperature: 0.7,
-      max_tokens: 1024,
+      contents,
+      generationConfig: { temperature: 0.7 },
     }),
   });
 
   if (!response.ok) {
     const err = await response.text();
-    throw new HTTPException(response.status as any, { message: `Chat error: ${err}` });
+    throw new HTTPException(response.status as any, { message: `Gemini chat error: ${err}` });
   }
 
   const data: any = await response.json();
-  const reply = data?.choices?.[0]?.message?.content ?? "응답을 생성할 수 없습니다.";
+  const reply: string = (data?.candidates?.[0]?.content?.parts ?? [])
+    .filter((p: any) => p.text)
+    .map((p: any) => p.text as string)
+    .join("") ?? "";
 
   return c.json({ reply });
 });

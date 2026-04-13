@@ -1,5 +1,4 @@
 // Dev proxy — CI이미지 + 가이드이미지 inlineData 포함해서 Gemini 이미지 생성
-export const dynamic = "force-dynamic";
 
 const WORKER_BASE = "https://epic-studio-api.pd-302.workers.dev";
 const MAX_IMAGES = 6;

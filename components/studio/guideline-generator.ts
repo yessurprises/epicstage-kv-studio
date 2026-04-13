@@ -640,12 +640,12 @@ Output only the text-free artboard/canvas version.`;
     return data.imageUrl;
   }
 
-  // 단일 턴: 원본 이미지 + 텍스트 제거 지시
+  // 단일 턴: 원본 이미지 + 텍스트 제거 지시 (Pro 모델로 최대 품질)
   const resp = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "gemini-3.1-flash-image-preview",
+      model: "gemini-3-pro-image-preview",
       contents: [{
         role: "user",
         parts: [

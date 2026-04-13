@@ -1,5 +1,4 @@
 // 레퍼런스 이미지들을 Gemini로 분석 → 스타일/무드/색상 JSON 반환
-export const dynamic = "force-dynamic";
 
 const WORKER_BASE = "https://epic-studio-api.pd-302.workers.dev";
 

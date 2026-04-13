@@ -1,5 +1,4 @@
 // Dev proxy — multi-turn으로 텍스트 제거 버전(대지) 생성
-export const dynamic = "force-dynamic";
 
 const WORKER_BASE = "https://epic-studio-api.pd-302.workers.dev";
 

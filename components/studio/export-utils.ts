@@ -27,6 +27,78 @@ export async function downloadAsZip(
   URL.revokeObjectURL(url);
 }
 
+// ─── 투명 PNG (대지→배경 제거) 다운로드 ──────────────────────────────────────
+
+/**
+ * 1. generateNoTextVersion()으로 텍스트 제거 (대지 버전)
+ * 2. @imgly/background-removal로 배경 제거
+ * 3. 투명 PNG 다운로드
+ *
+ * onProgress: "notext" | "rembg" — 현재 단계 콜백
+ */
+export async function downloadTransparentPng(
+  imageDataUrl: string,
+  filename: string = "kv-transparent.png",
+  onProgress?: (stage: "notext" | "rembg") => void
+) {
+  // Step 1: 대지(no-text) 버전 생성
+  onProgress?.("notext");
+  const { generateNoTextVersion } = await import("./guideline-generator");
+  const noTextUrl = await generateNoTextVersion(imageDataUrl);
+
+  // Step 2: 배경 제거
+  onProgress?.("rembg");
+  const { removeBackground } = await import("@imgly/background-removal");
+  const res = await fetch(noTextUrl);
+  const inputBlob = await res.blob();
+  const resultBlob = await removeBackground(inputBlob);
+
+  // Step 3: 다운로드
+  triggerDownload(resultBlob, filename);
+}
+
+// ─── SVG 벡터 변환 다운로드 ────────────────────────────────────────────────
+
+export async function downloadAsSvg(
+  imageDataUrl: string,
+  filename: string = "kv-vector.svg"
+) {
+  const ImageTracer = (await import("imagetracerjs")).default;
+  // data URL → Canvas → ImageData
+  const imgData = await dataUrlToImageData(imageDataUrl);
+  // 벡터화 (컬러, 상세 모드)
+  const svgString: string = ImageTracer.imagedataToSVG(imgData, "detailed");
+  const blob = new Blob([svgString], { type: "image/svg+xml" });
+  triggerDownload(blob, filename);
+}
+
+// ─── 유틸 ──────────────────────────────────────────────────────────────────
+
+function triggerDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function dataUrlToImageData(dataUrl: string): Promise<ImageData> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0);
+      resolve(ctx.getImageData(0, 0, canvas.width, canvas.height));
+    };
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
 // Section ID → 한글 라벨 (UI에 표시되는 4개 섹션만)
 const GUIDE_IMAGE_LABELS: Record<string, string> = {
   color_palette_sheet: "컬러 팔레트 시트",

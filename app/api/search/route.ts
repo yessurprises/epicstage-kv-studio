@@ -1,7 +1,6 @@
 // Dev proxy — Naver 이미지 검색 직접 호출 (Worker 배포 전 로컬 테스트용)
 // 프로덕션: output: "export"로 빌드 시 이 파일은 무시됨
 
-export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   const { query, limit = 20 } = await req.json();

@@ -1,5 +1,4 @@
 // Dev proxy — CI 이미지 inlineData 포함해서 Gemini 직접 호출
-export const dynamic = "force-dynamic";
 
 const WORKER_BASE = "https://epic-studio-api.pd-302.workers.dev";
 

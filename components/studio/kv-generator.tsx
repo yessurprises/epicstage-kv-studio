@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useStore, type MasterKv } from "./use-store";
 import { generateMasterKV } from "./guideline-generator";
+import { downloadTransparentPng, downloadAsSvg } from "./export-utils";
 import { KV_RATIOS } from "./constants";
 
 const RATIO_LABELS = {
@@ -24,6 +25,9 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
 
   const [selectedRatio, setSelectedRatio] = useState<string>("16:9");
   const [generating, setGenerating] = useState(false);
+  const [exportingPng, setExportingPng] = useState(false);
+  const [exportingPngStage, setExportingPngStage] = useState<"notext" | "rembg" | "">("");
+  const [exportingSvg, setExportingSvg] = useState(false);
   const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -207,6 +211,77 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
           onChange={handleFileChange}
           className="hidden"
         />
+
+        {/* 내보내기 버튼 — KV 이미지 있을 때만 */}
+        {masterKv?.imageUrl && (
+          <>
+            <div className="h-6 w-px bg-gray-800" />
+            <button
+              onClick={async () => {
+                setExportingPng(true);
+                setError("");
+                try {
+                  const name = `${activeVersion?.guideline?.event_summary?.name || "kv"}-transparent.png`;
+                  await downloadTransparentPng(masterKv.imageUrl, name, (stage) => setExportingPngStage(stage));
+                  addLog("투명 PNG 다운로드 완료", "ok");
+                } catch (e: any) { setError(e.message); }
+                setExportingPng(false);
+                setExportingPngStage("");
+              }}
+              disabled={exportingPng || exportingSvg}
+              className="btn flex items-center gap-2 rounded-xl border border-gray-700 px-4 py-3 text-sm text-gray-400 transition-colors hover:border-indigo-500/50 hover:text-indigo-300 disabled:opacity-50"
+            >
+              {exportingPng ? (
+                <>
+                  <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  {exportingPngStage === "notext" ? "대지 생성 중..." : "배경 제거 중..."}
+                </>
+              ) : (
+                <>
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14" />
+                  </svg>
+                  투명 PNG
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={async () => {
+                setExportingSvg(true);
+                setError("");
+                try {
+                  const name = `${activeVersion?.guideline?.event_summary?.name || "kv"}-vector.svg`;
+                  await downloadAsSvg(masterKv.imageUrl, name);
+                  addLog("SVG 벡터 다운로드 완료", "ok");
+                } catch (e: any) { setError(e.message); }
+                setExportingSvg(false);
+              }}
+              disabled={exportingPng || exportingSvg}
+              className="btn flex items-center gap-2 rounded-xl border border-gray-700 px-4 py-3 text-sm text-gray-400 transition-colors hover:border-indigo-500/50 hover:text-indigo-300 disabled:opacity-50"
+            >
+              {exportingSvg ? (
+                <>
+                  <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  변환 중...
+                </>
+              ) : (
+                <>
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  </svg>
+                  SVG 변환
+                </>
+              )}
+            </button>
+          </>
+        )}
       </div>
 
       {error && (

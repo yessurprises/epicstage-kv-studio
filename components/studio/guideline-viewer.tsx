@@ -27,9 +27,11 @@ const SECTION_DEFAULTS: Record<string, { id: string; label: string; description:
 function InlineGuideImage({
   version,
   sectionKey,
+  autoGenerating,
 }: {
   version: Version;
   sectionKey: string;
+  autoGenerating?: boolean;
 }) {
   const { setGuideImage, refAnalysis } = useStore();
   const [loading, setLoading] = useState(false);
@@ -39,6 +41,7 @@ function InlineGuideImage({
   const item = version.guideline?.guide_items_to_visualize?.find((i) => i.id === itemId)
     || SECTION_DEFAULTS[sectionKey];
   const imageUrl = version.guideImages?.[itemId];
+  const isLoading = loading || (autoGenerating && !imageUrl);
 
   if (!item) return null;
 
@@ -64,18 +67,24 @@ function InlineGuideImage({
           <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/60 transition-opacity">
             <button
               onClick={handleGenerate}
-              disabled={loading}
+              disabled={isLoading}
               className="rounded-lg bg-indigo-600 px-4 py-2 text-xs text-white hover:bg-indigo-500 disabled:opacity-50"
             >
-              {loading ? "재생성 중..." : "재생성"}
+              {isLoading ? "재생성 중..." : "재생성"}
             </button>
           </div>
         </div>
       ) : (
         <div className="flex items-center justify-between bg-gray-900/60 px-4 py-3">
-          <span className="text-xs text-gray-500">{item.description}</span>
-          {loading ? (
-            <span className="animate-pulse text-xs text-indigo-400">생성 중...</span>
+          <span className="text-xs text-gray-500">{item.label}</span>
+          {isLoading ? (
+            <div className="flex items-center gap-2">
+              <svg className="h-3.5 w-3.5 animate-spin text-indigo-400" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              <span className="text-xs text-indigo-400">생성 중...</span>
+            </div>
           ) : (
             <button
               onClick={handleGenerate}
@@ -135,7 +144,7 @@ function ColorSwatch({
   );
 }
 
-function ColorPaletteEditor({ version }: { version: Version }) {
+function ColorPaletteEditor({ version, autoGenerating }: { version: Version; autoGenerating?: boolean }) {
   const { updateColorPalette } = useStore();
   const palette = version.guideline?.color_palette;
   const [adding, setAdding] = useState(false);
@@ -230,7 +239,7 @@ function ColorPaletteEditor({ version }: { version: Version }) {
         ))}
       </div>
 
-      <InlineGuideImage version={version} sectionKey="color_palette" />
+      <InlineGuideImage version={version} sectionKey="color_palette" autoGenerating={autoGenerating} />
     </div>
   );
 }
@@ -240,6 +249,7 @@ const SECTION_KEYS = Object.keys(SECTION_IMAGE_ID);
 export default function GuidelineViewer({ version }: { version: Version }) {
   const g = version.guideline;
   const autoGenRef = useRef<string | null>(null);
+  const [autoGenerating, setAutoGenerating] = useState(false);
 
   // 자동 생성: 버전이 바뀌면 아직 없는 가이드 이미지를 전부 순차 생성
   useEffect(() => {
@@ -255,6 +265,7 @@ export default function GuidelineViewer({ version }: { version: Version }) {
       });
       if (missing.length === 0) return;
 
+      setAutoGenerating(true);
       const { ciImages, refAnalysis } = useStore.getState();
       const ci = ciImages.map((img) => ({ mime: img.mime, base64: img.base64 }));
 
@@ -271,6 +282,7 @@ export default function GuidelineViewer({ version }: { version: Version }) {
           // 실패해도 다음 진행
         }
       }
+      setAutoGenerating(false);
     })();
   }, [version.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -295,7 +307,7 @@ export default function GuidelineViewer({ version }: { version: Version }) {
       </div>
 
       {/* Color palette — editable */}
-      <ColorPaletteEditor version={version} />
+      <ColorPaletteEditor version={version} autoGenerating={autoGenerating} />
 
       {/* Mood */}
       <div className="rounded-xl border border-gray-800 bg-gray-950/50 p-5">
@@ -308,7 +320,7 @@ export default function GuidelineViewer({ version }: { version: Version }) {
           ))}
         </div>
         {g.mood.tone && <div className="mt-2 text-sm text-gray-500">톤: {g.mood.tone}</div>}
-        <InlineGuideImage version={version} sectionKey="mood" />
+        <InlineGuideImage version={version} sectionKey="mood" autoGenerating={autoGenerating} />
       </div>
 
       {/* Graphic motifs */}
@@ -324,7 +336,7 @@ export default function GuidelineViewer({ version }: { version: Version }) {
             ))}
           </div>
         </div>
-        <InlineGuideImage version={version} sectionKey="graphic_motifs" />
+        <InlineGuideImage version={version} sectionKey="graphic_motifs" autoGenerating={autoGenerating} />
       </div>
 
       {/* Layout guide */}
@@ -339,7 +351,7 @@ export default function GuidelineViewer({ version }: { version: Version }) {
               </div>
             ))}
           </div>
-          <InlineGuideImage version={version} sectionKey="layout_guide" />
+          <InlineGuideImage version={version} sectionKey="layout_guide" autoGenerating={autoGenerating} />
         </div>
       )}
 

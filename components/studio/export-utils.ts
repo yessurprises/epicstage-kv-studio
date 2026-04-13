@@ -27,14 +27,12 @@ export async function downloadAsZip(
   URL.revokeObjectURL(url);
 }
 
-// Section ID → 한글 라벨
+// Section ID → 한글 라벨 (UI에 표시되는 4개 섹션만)
 const GUIDE_IMAGE_LABELS: Record<string, string> = {
   color_palette_sheet: "컬러 팔레트 시트",
-  typography_sheet: "타이포그래피 가이드 시트",
+  mood_board: "무드 보드",
   motif_board: "그래픽 모티프 보드",
   layout_sketches: "레이아웃 가이드 스케치",
-  logo_usage_sheet: "로고 사용 가이드",
-  mood_board: "무드 보드",
 };
 
 // Simple PDF generation (guideline summary + guide images)
@@ -46,11 +44,30 @@ export function generateGuidelinePdf(
   const w = window.open("", "_blank");
   if (!w) return;
 
+  // ─── 컬러 팔레트 ───
   const colors = Object.entries(guideline.color_palette || {})
     .map(([k, v]: [string, any]) => `<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><div style="width:24px;height:24px;border-radius:4px;background:${v.hex}"></div><span style="font-family:monospace;font-size:12px">${k}: ${v.hex}</span><span style="color:#888;font-size:11px">${v.usage}</span></div>`)
     .join("");
 
+  // ─── 무드 ───
   const mood = (guideline.mood?.keywords || []).map((k: string) => `<span style="display:inline-block;padding:2px 10px;border-radius:100px;background:#f0f0f0;font-size:11px;margin:2px">${k}</span>`).join("");
+
+  // ─── 그래픽 모티프 (UI와 동일한 텍스트 형태) ───
+  const gm = guideline.graphic_motifs;
+  const motifHtml = gm ? [
+    gm.style ? `<div>스타일: ${gm.style}</div>` : "",
+    gm.texture ? `<div>텍스처: ${gm.texture}</div>` : "",
+    gm.icon_style ? `<div>아이콘: ${gm.icon_style}</div>` : "",
+    gm.elements?.length ? `<div style="margin-top:4px">${gm.elements.map((el: string) => `<span style="display:inline-block;padding:1px 8px;border-radius:4px;background:#f0f0f0;font-size:11px;margin:2px">${el}</span>`).join("")}</div>` : "",
+  ].filter(Boolean).join("") : "";
+
+  // ─── 레이아웃 가이드 (UI와 동일한 key-value 형태) ───
+  const layoutHtml = guideline.layout_guide
+    ? Object.entries(guideline.layout_guide)
+        .filter(([, v]) => v)
+        .map(([k, v]) => `<div style="display:flex;gap:8px;margin:2px 0"><span style="font-family:monospace;font-size:10px;color:#999;text-transform:uppercase;flex-shrink:0">${k}</span><span>${v}</span></div>`)
+        .join("")
+    : "";
 
   // 가이드 이미지 섹션 HTML
   function guideImg(sectionId: string): string {
@@ -65,26 +82,22 @@ body{font-family:-apple-system,sans-serif;max-width:800px;margin:40px auto;paddi
 h1{font-size:24px;margin-bottom:4px}
 h2{font-size:16px;color:#666;margin-top:32px;border-bottom:1px solid #eee;padding-bottom:8px}
 .meta{color:#888;font-size:13px;margin-bottom:24px}
-pre{background:#f8f8f8;padding:12px;border-radius:8px;font-size:11px;overflow-x:auto}
+.section-text{font-size:13px;color:#444;line-height:1.6}
 img{page-break-inside:avoid}
 @media print{body{margin:20px auto}img{max-height:400px;object-fit:contain}}
 </style></head>
 <body>
 <h1>${guideline.event_summary?.name || eventName}</h1>
-<div class="meta">${guideline.event_summary?.date || ""} · ${guideline.event_summary?.venue || ""} · ${guideline.event_summary?.organizer || ""}</div>
+<div class="meta">${[guideline.event_summary?.date, guideline.event_summary?.venue, guideline.event_summary?.organizer].filter(Boolean).join(" · ")}</div>
 ${guideline.event_summary?.slogan ? `<p style="font-style:italic;color:#555">"${guideline.event_summary.slogan}"</p>` : ""}
 
 <h2>컬러 팔레트</h2>${colors}${guideImg("color_palette_sheet")}
 
-<h2>타이포그래피</h2><pre>${JSON.stringify(guideline.typography, null, 2)}</pre>${guideImg("typography_sheet")}
+<h2>무드</h2><div>${mood}</div>${guideline.mood?.tone ? `<div style="margin-top:8px;color:#666;font-size:13px">톤: ${guideline.mood.tone}</div>` : ""}${guideImg("mood_board")}
 
-<h2>무드</h2><div>${mood}</div><div style="margin-top:8px;color:#666;font-size:13px">톤: ${guideline.mood?.tone || ""}</div>${guideImg("mood_board")}
+<h2>그래픽 모티프</h2><div class="section-text">${motifHtml}</div>${guideImg("motif_board")}
 
-<h2>그래픽 모티프</h2><pre>${JSON.stringify(guideline.graphic_motifs, null, 2)}</pre>${guideImg("motif_board")}
-
-<h2>레이아웃 가이드</h2><pre>${JSON.stringify(guideline.layout_guide, null, 2)}</pre>${guideImg("layout_sketches")}
-
-${guideline.logo_usage ? `<h2>로고 사용 가이드</h2><pre>${JSON.stringify(guideline.logo_usage, null, 2)}</pre>${guideImg("logo_usage_sheet")}` : ""}
+${guideline.layout_guide ? `<h2>레이아웃 가이드</h2><div class="section-text">${layoutHtml}</div>${guideImg("layout_sketches")}` : ""}
 
 </body></html>`;
 

@@ -59,17 +59,75 @@ export async function downloadTransparentPng(
 
 // ─── SVG 벡터 변환 다운로드 ────────────────────────────────────────────────
 
+import { vectorizeImage, type VectorizeProvider } from "./vectorize-service";
+
+/**
+ * 원본 이미지 → SVG 벡터화 다운로드
+ */
 export async function downloadAsSvg(
   imageDataUrl: string,
-  filename: string = "kv-vector.svg"
+  filename: string = "kv-vector.svg",
+  provider: VectorizeProvider = "vectorizer"
 ) {
-  const ImageTracer = (await import("imagetracerjs")).default;
-  // data URL → Canvas → ImageData
-  const imgData = await dataUrlToImageData(imageDataUrl);
-  // 벡터화 (컬러, 상세 모드)
-  const svgString: string = ImageTracer.imagedataToSVG(imgData, "detailed");
+  const svgString = await vectorizeImage(imageDataUrl, provider);
   const blob = new Blob([svgString], { type: "image/svg+xml" });
   triggerDownload(blob, filename);
+}
+
+/**
+ * 대지화(텍스트 제거) → SVG 벡터화 다운로드
+ */
+export async function downloadNoTextSvg(
+  imageDataUrl: string,
+  filename: string = "kv-notext-vector.svg",
+  provider: VectorizeProvider = "vectorizer",
+  onProgress?: (stage: "notext" | "vectorize") => void
+) {
+  onProgress?.("notext");
+  const { generateNoTextVersion } = await import("./guideline-generator");
+  const noTextUrl = await generateNoTextVersion(imageDataUrl);
+
+  onProgress?.("vectorize");
+  const svgString = await vectorizeImage(noTextUrl, provider);
+  const blob = new Blob([svgString], { type: "image/svg+xml" });
+  triggerDownload(blob, filename);
+}
+
+/**
+ * 대지화 → 배경 제거 → 투명 PNG → SVG 벡터화 다운로드
+ */
+export async function downloadTransparentSvg(
+  imageDataUrl: string,
+  filename: string = "kv-transparent-vector.svg",
+  provider: VectorizeProvider = "vectorizer",
+  onProgress?: (stage: "notext" | "rembg" | "vectorize") => void
+) {
+  // Step 1: 대지
+  onProgress?.("notext");
+  const { generateNoTextVersion } = await import("./guideline-generator");
+  const noTextUrl = await generateNoTextVersion(imageDataUrl);
+
+  // Step 2: 배경 제거
+  onProgress?.("rembg");
+  const { removeBackground } = await import("@imgly/background-removal");
+  const inputBlob = await (await fetch(noTextUrl)).blob();
+  const transparentBlob = await removeBackground(inputBlob);
+
+  // Step 3: 투명 PNG → data URL → SVG
+  onProgress?.("vectorize");
+  const transparentDataUrl = await blobToDataUrl(transparentBlob);
+  const svgString = await vectorizeImage(transparentDataUrl, provider);
+  const blob = new Blob([svgString], { type: "image/svg+xml" });
+  triggerDownload(blob, filename);
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 }
 
 // ─── 유틸 ──────────────────────────────────────────────────────────────────

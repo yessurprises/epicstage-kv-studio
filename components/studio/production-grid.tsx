@@ -8,7 +8,8 @@ import {
   generateProductionImage,
   generateNoTextVersion,
 } from "./guideline-generator";
-import { requestUpscale } from "./api";
+import { downloadAsSvg } from "./export-utils";
+import type { VectorizeProvider } from "./vectorize-service";
 
 const PLAN_BATCH_SIZE = 10;
 const IMAGE_BATCH_SIZE = 2;
@@ -24,19 +25,8 @@ function ProductionCard({
 }) {
   const { updateProduction } = useStore();
   const activeVersion = useStore((s) => s.versions.find((v) => v.id === s.selectedVersionId));
-  const [upscaleScale, setUpscaleScale] = useState(4);
-
-  async function handleUpscale() {
-    if (!prod.imageUrl) return;
-    updateProduction(prod.id, { upscaleStatus: "pending" });
-    try {
-      const blob = await fetch(prod.imageUrl).then((r) => r.blob());
-      const result = await requestUpscale(blob, upscaleScale);
-      updateProduction(prod.id, { upscaleStatus: "done", upscaleUrl: result.url });
-    } catch {
-      updateProduction(prod.id, { upscaleStatus: "error" });
-    }
-  }
+  const [svgProvider, setSvgProvider] = useState<VectorizeProvider>("vectorizer");
+  const [vectorizing, setVectorizing] = useState(false);
 
   async function handleRegenerate() {
     if (!activeVersion) return;
@@ -130,15 +120,26 @@ function ProductionCard({
                 <img src={prod.noTextUrl} alt={`${prod.name} 대지`} className="w-full" />
               </div>
             )}
-            {/* Upscale */}
+            {/* SVG 벡터화 */}
             <div className="flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-950/50 px-3 py-2">
-              <select value={upscaleScale} onChange={(e) => setUpscaleScale(Number(e.target.value))} className="rounded border border-gray-800 bg-gray-950 px-2 py-1 text-xs text-gray-400">
-                <option value={2}>2x</option><option value={4}>4x</option><option value={8}>8x</option>
+              <select value={svgProvider} onChange={(e) => setSvgProvider(e.target.value as VectorizeProvider)} className="rounded border border-gray-800 bg-gray-950 px-2 py-1 text-[10px] text-gray-400">
+                <option value="vectorizer">Vectorizer.ai</option>
+                <option value="recraft">Recraft</option>
               </select>
-              <span className="text-[10px] text-gray-600">인쇄용</span>
-              {prod.upscaleStatus && <span className={`rounded-full px-2 py-0.5 text-[10px] ${prod.upscaleStatus === "done" ? "bg-emerald-500/10 text-emerald-400" : "bg-indigo-500/10 text-indigo-400"}`}>{prod.upscaleStatus === "done" ? "완료" : "처리 중..."}</span>}
-              <button onClick={handleUpscale} disabled={prod.upscaleStatus === "pending"} className="ml-auto rounded bg-gray-800 px-3 py-1 text-[10px] text-gray-300 hover:bg-gray-700 disabled:opacity-50">업스케일</button>
-              {prod.upscaleStatus === "done" && prod.upscaleUrl && <a href={prod.upscaleUrl} download={`${prod.name}.png`} className="rounded bg-emerald-800/30 px-3 py-1 text-[10px] text-emerald-400 hover:bg-emerald-800/50">다운로드</a>}
+              <button
+                onClick={async () => {
+                  if (!prod.imageUrl) return;
+                  setVectorizing(true);
+                  try {
+                    await downloadAsSvg(prod.imageUrl, `${prod.name}-vector.svg`, svgProvider);
+                  } catch { /* handled by service */ }
+                  setVectorizing(false);
+                }}
+                disabled={vectorizing}
+                className="rounded bg-gray-800 px-3 py-1 text-[10px] text-gray-300 hover:bg-gray-700 disabled:opacity-50"
+              >
+                {vectorizing ? "변환 중..." : "SVG 벡터화"}
+              </button>
             </div>
           </div>
         )}

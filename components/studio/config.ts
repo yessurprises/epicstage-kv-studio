@@ -8,3 +8,4 @@ export const CHAT_URL = () => isLocal() ? "/api/chat/" : `${API_BASE}/api/chat`;
 export const IMAGE_URL = () => isLocal() ? "/api/generate-image/" : `${API_BASE}/api/generate`;
 export const ANALYZE_REFS_URL = () => isLocal() ? "/api/analyze-refs/" : `${API_BASE}/api/generate`;
 export const SEARCH_URL = () => isLocal() ? "/api/search/" : `${API_BASE}/api/search/smart-references`;
+export const VECTORIZE_URL = () => isLocal() ? "/api/vectorize/" : `${API_BASE}/api/vectorize`;

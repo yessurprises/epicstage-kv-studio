@@ -357,9 +357,9 @@ INSTRUCTION:
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "gemini-3-pro-image-preview",
+        model: "gemini-3.1-flash-image-preview",
         contents: [{ role: "user", parts }],
-        generationConfig: { responseModalities: ["TEXT", "IMAGE"], temperature: 1, imageConfig: { imageSize: "4K" } },
+        generationConfig: { responseModalities: ["TEXT", "IMAGE"], temperature: 1, imageConfig: { imageSize: "2K" } },
       }),
     });
   }
@@ -476,9 +476,9 @@ REQUIREMENTS:
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "gemini-3-pro-image-preview",
+        model: "gemini-3.1-flash-image-preview",
         contents: [{ role: "user", parts }],
-        generationConfig: { responseModalities: ["TEXT", "IMAGE"], temperature: 1, imageConfig: { imageSize: "4K" } },
+        generationConfig: { responseModalities: ["TEXT", "IMAGE"], temperature: 1, imageConfig: { imageSize: "2K" } },
       }),
     });
   }
@@ -646,7 +646,7 @@ Output only the text-free artboard/canvas version.`;
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "gemini-3-pro-image-preview",
+      model: "gemini-3.1-flash-image-preview",
       contents: [{
         role: "user",
         parts: [
@@ -654,7 +654,7 @@ Output only the text-free artboard/canvas version.`;
           { text: removeTextPrompt },
         ],
       }],
-      generationConfig: { responseModalities: ["TEXT", "IMAGE"], temperature: 1, imageConfig: { imageSize: "4K" } },
+      generationConfig: { responseModalities: ["TEXT", "IMAGE"], temperature: 1, imageConfig: { imageSize: "2K" } },
     }),
   });
 

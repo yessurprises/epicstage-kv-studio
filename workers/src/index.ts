@@ -234,7 +234,8 @@ async function naverSearch(env: Env, query: string, limit: number) {
     "X-Naver-Client-Secret": clientSecret,
   };
 
-  const results: any[] = [];
+  const imageResults: any[] = [];
+  const blogResults: any[] = [];
 
   // Search blog + image in parallel
   const [blogResp, imageResp] = await Promise.allSettled([
@@ -242,22 +243,10 @@ async function naverSearch(env: Env, query: string, limit: number) {
     fetch(`https://openapi.naver.com/v1/search/image?query=${encodeURIComponent(query)}&display=${limit}`, { headers }),
   ]);
 
-  if (blogResp.status === "fulfilled" && blogResp.value.ok) {
-    const data: any = await blogResp.value.json();
-    for (const item of (data.items ?? [])) {
-      results.push({
-        title: item.title?.replace(/<[^>]+>/g, "") ?? "",
-        url: item.link ?? "",
-        thumbnail: item.thumbnail ?? "",
-        source: "naver_blog",
-      });
-    }
-  }
-
   if (imageResp.status === "fulfilled" && imageResp.value.ok) {
     const data: any = await imageResp.value.json();
     for (const item of (data.items ?? [])) {
-      results.push({
+      imageResults.push({
         title: item.title?.replace(/<[^>]+>/g, "") ?? "",
         url: item.link ?? "",
         thumbnail: item.thumbnail ?? item.link ?? "",
@@ -266,7 +255,21 @@ async function naverSearch(env: Env, query: string, limit: number) {
     }
   }
 
-  return results.slice(0, limit);
+  if (blogResp.status === "fulfilled" && blogResp.value.ok) {
+    const data: any = await blogResp.value.json();
+    for (const item of (data.items ?? [])) {
+      if (!item.thumbnail) continue; // skip blog posts without thumbnails
+      blogResults.push({
+        title: item.title?.replace(/<[^>]+>/g, "") ?? "",
+        url: item.link ?? "",
+        thumbnail: item.thumbnail,
+        source: "naver_blog",
+      });
+    }
+  }
+
+  // Images first (always have thumbnails), then blog posts with thumbnails
+  return [...imageResults, ...blogResults].slice(0, limit);
 }
 
 // ─── AI Style Analysis (Gemini Vision) ──────────────────────────────────────

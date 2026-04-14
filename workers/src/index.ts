@@ -407,9 +407,8 @@ app.post("/api/recraft/generate-kv", async (c) => {
   const token = c.env.RECRAFT_API_TOKEN;
   if (!token) throw new HTTPException(500, { message: "RECRAFT_API_TOKEN not configured" });
 
-  const { prompt, style, size, colors, vector } = await c.req.json<{
+  const { prompt, size, colors, vector } = await c.req.json<{
     prompt: string;
-    style?: string;
     size?: string;
     colors?: Array<{ rgb: [number, number, number] }>;
     vector?: boolean;
@@ -424,8 +423,7 @@ app.post("/api/recraft/generate-kv", async (c) => {
     response_format: "b64_json",
     n: 1,
   };
-  if (style) body.style = style;
-  // style_id는 V4에서 미지원 — 전달하지 않음
+  // V4는 style, style_id 미지원 — colors와 prompt로만 스타일 제어
   if (colors?.length) body.controls = { colors };
 
   const resp = await fetch("https://external.api.recraft.ai/v1/images/generations", {
@@ -453,36 +451,6 @@ app.post("/api/recraft/generate-kv", async (c) => {
   });
 });
 
-// Recraft Style Creation (from reference images)
-app.post("/api/recraft/create-style", async (c) => {
-  const token = c.env.RECRAFT_API_TOKEN;
-  if (!token) throw new HTTPException(500, { message: "RECRAFT_API_TOKEN not configured" });
-
-  const formData = await c.req.formData();
-  const style = formData.get("style") as string || "digital_illustration";
-
-  // Forward multipart to Recraft
-  const fwd = new FormData();
-  fwd.append("style", style);
-  const files = formData.getAll("files");
-  for (const file of files) {
-    fwd.append("file", file);
-  }
-
-  const resp = await fetch("https://external.api.recraft.ai/v1/styles", {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${token}` },
-    body: fwd,
-  });
-
-  if (!resp.ok) {
-    const err = await resp.text();
-    return c.text(`Recraft style error: ${err}`, resp.status as any);
-  }
-
-  const data = (await resp.json()) as any;
-  return c.json({ style_id: data.id });
-});
 
 // ─── SVG Vectorize Proxy (Vectorizer.ai / Recraft AI) ─────────────────────
 

@@ -10,4 +10,3 @@ export const ANALYZE_REFS_URL = () => isLocal() ? "/api/analyze-refs/" : `${API_
 export const SEARCH_URL = () => isLocal() ? "/api/search/" : `${API_BASE}/api/search/smart-references`;
 export const VECTORIZE_URL = () => isLocal() ? "/api/vectorize/" : `${API_BASE}/api/vectorize`;
 export const RECRAFT_KV_URL = () => `${API_BASE}/api/recraft/generate-kv`;
-export const RECRAFT_STYLE_URL = () => `${API_BASE}/api/recraft/create-style`;

@@ -407,10 +407,9 @@ app.post("/api/recraft/generate-kv", async (c) => {
   const token = c.env.RECRAFT_API_TOKEN;
   if (!token) throw new HTTPException(500, { message: "RECRAFT_API_TOKEN not configured" });
 
-  const { prompt, style, style_id, size, colors, vector } = await c.req.json<{
+  const { prompt, style, size, colors, vector } = await c.req.json<{
     prompt: string;
     style?: string;
-    style_id?: string;
     size?: string;
     colors?: Array<{ rgb: [number, number, number] }>;
     vector?: boolean;
@@ -421,12 +420,12 @@ app.post("/api/recraft/generate-kv", async (c) => {
   const body: Record<string, unknown> = {
     prompt,
     model: vector ? "recraftv4_vector" : "recraftv4",
-    size: size || "1820x1024",
+    size: size || (vector ? "16:9" : "1344x768"),
     response_format: "b64_json",
     n: 1,
   };
   if (style) body.style = style;
-  if (style_id) body.style_id = style_id;
+  // style_id는 V4에서 미지원 — 전달하지 않음
   if (colors?.length) body.controls = { colors };
 
   const resp = await fetch("https://external.api.recraft.ai/v1/images/generations", {

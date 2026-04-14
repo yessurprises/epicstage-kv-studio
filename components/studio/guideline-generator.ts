@@ -1,5 +1,5 @@
 import type { Guideline, Version, ProductionPlanItem } from "./use-store";
-import { API_BASE, isLocal, CHAT_URL, IMAGE_URL, RECRAFT_KV_URL, RECRAFT_STYLE_URL } from "./config";
+import { API_BASE, isLocal, CHAT_URL, IMAGE_URL, RECRAFT_KV_URL } from "./config";
 
 // ─── 시스템 인스트럭션 ────────────────────────────────────────────────────
 
@@ -498,30 +498,12 @@ REQUIREMENTS:
   return `data:${mimeType};base64,${b64}`;
 }
 
-// ─── Recraft Style 생성 (레퍼런스 이미지 → style_id) ──────────────────────
+// ─── Recraft KV 생성 (대지 전용 — 텍스트 없이 비주얼만) ─────────────────
 
-export async function createRecraftStyle(
-  refImages: Array<{ mime: string; base64: string }>,
-  baseStyle: string = "digital_illustration"
-): Promise<string> {
-  const form = new FormData();
-  form.append("style", baseStyle);
-  for (const img of refImages.slice(0, 5)) {
-    const blob = await fetch(`data:${img.mime};base64,${img.base64}`).then((r) => r.blob());
-    form.append("files", blob, `ref.${img.mime.split("/")[1] || "png"}`);
-  }
-
-  const resp = await fetch(RECRAFT_STYLE_URL(), { method: "POST", body: form });
-  if (!resp.ok) throw new Error(`Recraft 스타일 생성 실패: ${resp.status}`);
-  const data = await resp.json() as any;
-  return data.style_id;
-}
-
-// ─── Recraft KV 생성 ────────────────────────────────────────────────────
-
-const RATIO_TO_SIZE: Record<string, string> = {
-  "16:9": "1820x1024",
-  "3:4": "1024x1365",
+// V4 Vector는 비율 문자열, 래스터는 V4 지원 픽셀 사이즈
+const RATIO_TO_RECRAFT_SIZE: Record<string, string> = {
+  "16:9": "1344x768",
+  "3:4": "896x1216",
   "1:1": "1024x1024",
 };
 
@@ -530,16 +512,10 @@ export async function generateRecraftKV(
   ratio: string,
   kvName: string,
   vector: boolean,
-  styleId?: string,
-  refImages?: Array<{ mime: string; base64: string }>,
+  _styleId?: string,
+  _refImages?: Array<{ mime: string; base64: string }>,
   refAnalysis?: string
 ): Promise<{ imageUrl: string; isSvg: boolean }> {
-  // 레퍼런스 있고 styleId 없으면 자동 생성
-  let resolvedStyleId = styleId;
-  if (!resolvedStyleId && refImages?.length) {
-    resolvedStyleId = await createRecraftStyle(refImages);
-  }
-
   // 가이드라인에서 컬러 추출
   const colors: Array<{ rgb: [number, number, number] }> = [];
   const palette = guideline.color_palette;
@@ -555,28 +531,32 @@ export async function generateRecraftKV(
     }
   }
 
-  // 프롬프트 구성
+  // 프롬프트 구성 — 대지 전용 (텍스트 렌더링 없음, 한글 없음)
   const motifs = guideline.graphic_motifs;
   const mood = guideline.mood;
   const prompt = [
-    `Professional event key visual for "${guideline.event_summary?.name || "Event"}".`,
+    `Professional event key visual background artwork. No text, no letters, no typography.`,
     kvName ? `Type: ${kvName}.` : "",
     motifs?.style ? `Style: ${motifs.style}.` : "",
     motifs?.elements?.length ? `Elements: ${motifs.elements.join(", ")}.` : "",
     motifs?.texture ? `Texture: ${motifs.texture}.` : "",
     mood?.keywords?.length ? `Mood: ${mood.keywords.join(", ")}.` : "",
     mood?.tone ? `Tone: ${mood.tone}.` : "",
-    guideline.event_summary?.slogan ? `Slogan: "${guideline.event_summary.slogan}".` : "",
     refAnalysis ? `Reference direction: ${refAnalysis}` : "",
-    "Bold, memorable, visually striking hero image. Production-ready print quality.",
+    "Bold, memorable, visually striking. Clean artboard without any text overlay. Production-ready print quality.",
   ].filter(Boolean).join(" ");
+
+  // V4 Vector는 비율 문자열 사용
+  const size = vector
+    ? ratio
+    : (RATIO_TO_RECRAFT_SIZE[ratio] || "1344x768");
 
   const body: Record<string, unknown> = {
     prompt,
     vector,
-    size: RATIO_TO_SIZE[ratio] || "1820x1024",
+    size,
   };
-  if (resolvedStyleId) body.style_id = resolvedStyleId;
+  // style_id는 V4에서 미지원이므로 전달하지 않음
   if (colors.length) body.colors = colors;
 
   const resp = await fetch(RECRAFT_KV_URL(), {

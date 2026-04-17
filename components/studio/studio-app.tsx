@@ -1,17 +1,19 @@
 "use client";
 
-import { useStore } from "./use-store";
-import { generateGuideline, createVersion, analyzeRefs } from "./guideline-generator";
-import { generateGuidelinePdf, downloadAsZip } from "./export-utils";
-import TierSelector from "./tier-selector";
-import EventInput from "./event-input";
-import ReferenceSearch from "./reference-search";
-import ChatPanel from "./chat-panel";
-import GuidelineViewer from "./guideline-viewer";
-import CatalogSelector from "./catalog-selector";
-import ProductionGrid from "./production-grid";
-import KvGenerator from "./kv-generator";
 import { useState } from "react";
+import AutosaveBanner from "./autosave-banner";
+import CatalogSelector from "./catalog-selector";
+import ChatPanel from "./chat-panel";
+import EventInput from "./event-input";
+import { analyzeRefs, createVersion, generateGuideline } from "./generation";
+import GuidelineViewer from "./guideline-viewer";
+import KvGenerator from "./kv-generator";
+import ProductionGrid from "./production-grid";
+import ReferenceSearch from "./reference-search";
+import TierSelector from "./tier-selector";
+import { downloadAsZip, generateGuidelinePdf } from "./export-utils";
+import { useAutosave, useRestorableAutosave } from "./use-autosave";
+import { useStore } from "./use-store";
 
 export default function StudioApp() {
   const {
@@ -24,6 +26,8 @@ export default function StudioApp() {
   } = useStore();
 
   const [generateError, setGenerateError] = useState("");
+  const { pending: pendingAutosave, restore, discard } = useRestorableAutosave();
+  useAutosave(true);
 
   const activeVersion = versions.find((v) => v.id === activeVersionId);
   const confirmedVersion = versions.find((v) => v.id === selectedVersionId);
@@ -44,8 +48,11 @@ export default function StudioApp() {
           analysis = await analyzeRefs(refFiles.map((f) => ({ mime: f.mime, base64: f.base64 })));
           setRefAnalysis(analysis);
           addLog("레퍼런스 분석 완료", "ok");
-        } catch (e: any) {
-          addLog(`레퍼런스 분석 실패: ${e.message}`, "err");
+        } catch (e) {
+          addLog(
+            `레퍼런스 분석 실패: ${e instanceof Error ? e.message : String(e)}`,
+            "err",
+          );
         }
       }
 
@@ -58,8 +65,8 @@ export default function StudioApp() {
       addVersion(version);
       addLog(`Ver.${version.num} 생성 완료 — "${guideline.event_summary.name}"`, "ok");
       setStep(2);
-    } catch (err: any) {
-      const msg = err.message || "알 수 없는 오류";
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "알 수 없는 오류";
       setGenerateError(msg);
       addLog(`생성 실패: ${msg}`, "err");
     }
@@ -69,6 +76,17 @@ export default function StudioApp() {
 
   return (
     <div>
+      {pendingAutosave && (
+        <AutosaveBanner
+          pending={pendingAutosave}
+          onRestore={() => {
+            void restore();
+          }}
+          onDiscard={() => {
+            void discard();
+          }}
+        />
+      )}
       {/* Step indicator */}
       <div className="mb-10 flex items-center justify-center">
         {([1, 2, 3, 4] as const).map((s, idx) => {

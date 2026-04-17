@@ -17,7 +17,13 @@ export interface Env {
 export const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
 export const OPENROUTER_MODEL = "google/gemini-3.1-flash-image-preview";
 
-export const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
+// Routed through a Supabase Edge Function pinned to Seoul (ap-northeast-2)
+// so the outbound fetch to Google originates from a Korean IP. The CF
+// Worker itself frequently lands in HKG colo, which Google blocks for the
+// public Gemini API. The function is a plain pass-through — same paths,
+// same auth (API key in query string), same request/response shape.
+export const GEMINI_BASE =
+  "https://sznthxhennxbqhdogxoy.supabase.co/functions/v1/gemini/v1beta";
 
 export const CORS_ORIGINS = [
   "http://localhost:5173",

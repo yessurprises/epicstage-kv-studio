@@ -1,116 +1,7 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { Env } from "../env";
-import { GEMINI_BASE, OPENROUTER_BASE } from "../env";
-
-// Cloudflare Workers egress IPs sometimes land in regions Google blocks for
-// the public Gemini API. Detect and fall back to OpenRouter, which proxies
-// Google with non-blocked egress.
-function isGeminiRegionError(status: number, body: string): boolean {
-  if (status !== 400) return false;
-  return (
-    body.includes("User location is not supported") ||
-    body.includes("FAILED_PRECONDITION")
-  );
-}
-
-// Convert Gemini `contents[].parts[]` to OpenAI/OpenRouter message content.
-function geminiContentsToOpenRouter(
-  contents: GeminiContent[],
-  system?: string,
-): Array<{ role: string; content: unknown }> {
-  const messages: Array<{ role: string; content: unknown }> = [];
-  if (system) messages.push({ role: "system", content: system });
-
-  for (const turn of contents) {
-    const parts: Array<Record<string, unknown>> = [];
-    for (const p of turn.parts) {
-      if ("text" in p) {
-        parts.push({ type: "text", text: p.text });
-      } else if ("inlineData" in p) {
-        parts.push({
-          type: "image_url",
-          image_url: {
-            url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}`,
-          },
-        });
-      }
-    }
-    const firstPart = parts[0];
-    messages.push({
-      role: turn.role === "model" ? "assistant" : "user",
-      content:
-        parts.length === 1 && firstPart && firstPart.type === "text"
-          ? firstPart.text
-          : parts,
-    });
-  }
-  return messages;
-}
-
-// OpenRouter chat → Gemini-shaped response (text + inline images).
-async function callOpenRouterAsGemini(
-  env: Env,
-  model: string,
-  contents: GeminiContent[],
-  generationConfig?: Record<string, unknown>,
-  system?: string,
-): Promise<Response> {
-  const key = env.OPENROUTER_API_KEY;
-  if (!key) {
-    throw new HTTPException(500, {
-      message: "Gemini region-blocked and OPENROUTER_API_KEY not configured for fallback",
-    });
-  }
-
-  // Pin OpenRouter to the Vertex AI provider for this same model. The
-  // default `google-ai-studio` provider inherits the public Gemini API
-  // geo-block (rejects HKG-origin requests), but Vertex does not.
-  const resp = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${key}`,
-      "HTTP-Referer": "https://epic-studio.epicstage.co.kr",
-    },
-    body: JSON.stringify({
-      model: `google/${model}`,
-      provider: { order: ["google-vertex"], allow_fallbacks: false },
-      messages: geminiContentsToOpenRouter(contents, system),
-      temperature: (generationConfig?.temperature as number) ?? 0.7,
-    }),
-  });
-
-  if (!resp.ok) {
-    const err = await resp.text();
-    throw new HTTPException(resp.status as 400, {
-      message: `OpenRouter fallback error: ${err}`,
-    });
-  }
-
-  const data = (await resp.json()) as {
-    choices?: Array<{
-      message?: {
-        content?: string;
-        images?: Array<{ image_url?: { url?: string } }>;
-      };
-    }>;
-  };
-  const msg = data?.choices?.[0]?.message;
-  const parts: Array<Record<string, unknown>> = [];
-  if (msg?.content) parts.push({ text: msg.content });
-  for (const img of msg?.images ?? []) {
-    const url = img?.image_url?.url;
-    if (!url?.startsWith("data:")) continue;
-    const match = url.match(/^data:([^;]+);base64,(.+)$/);
-    if (!match) continue;
-    parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
-  }
-  return Response.json({
-    candidates: [{ content: { role: "model", parts } }],
-    _fallback: "openrouter",
-  });
-}
+import { GEMINI_BASE } from "../env";
 
 interface InlineDataPart {
   inlineData: { mimeType: string; data: string };
@@ -147,10 +38,23 @@ const STYLE_CATEGORIES = [
   "캐주얼+팝",
 ];
 
+// Chunked base64 encode (Workers runtime has no Buffer; String.fromCharCode
+// on large buffers overflows the call stack without chunking).
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  const chunk = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
 export const generateRoutes = new Hono<{ Bindings: Env }>();
 
 // Raw Gemini image-generation proxy. The frontend composes `contents` +
-// generationConfig and this route forwards straight to Gemini.
+// generationConfig and this route forwards straight to Gemini (via the
+// Seoul-pinned Supabase proxy configured in GEMINI_BASE).
 generateRoutes.post("/api/generate", async (c) => {
   const apiKey = c.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -178,16 +82,6 @@ generateRoutes.post("/api/generate", async (c) => {
 
   if (!response.ok) {
     const err = await response.text();
-    if (isGeminiRegionError(response.status, err)) {
-      const fallback = await callOpenRouterAsGemini(
-        c.env,
-        model,
-        body.contents,
-        body.generationConfig,
-        body.system,
-      );
-      return fallback;
-    }
     throw new HTTPException(response.status as 400, {
       message: `Gemini error: ${err}`,
     });
@@ -243,8 +137,7 @@ generateRoutes.post("/api/chat", async (c) => {
     };
   });
 
-  const chatModel = "gemini-3.1-flash-image-preview";
-  const geminiUrl = `${GEMINI_BASE}/models/${chatModel}:generateContent?key=${apiKey}`;
+  const geminiUrl = `${GEMINI_BASE}/models/gemini-3.1-flash-image-preview:generateContent?key=${apiKey}`;
 
   const response = await fetch(geminiUrl, {
     method: "POST",
@@ -255,26 +148,16 @@ generateRoutes.post("/api/chat", async (c) => {
     }),
   });
 
-  let data: {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
-
   if (!response.ok) {
     const err = await response.text();
-    if (isGeminiRegionError(response.status, err)) {
-      const fallback = await callOpenRouterAsGemini(c.env, chatModel, contents, {
-        temperature: 0.7,
-      });
-      data = (await fallback.json()) as typeof data;
-    } else {
-      throw new HTTPException(response.status as 400, {
-        message: `Gemini chat error: ${err}`,
-      });
-    }
-  } else {
-    data = (await response.json()) as typeof data;
+    throw new HTTPException(response.status as 400, {
+      message: `Gemini chat error: ${err}`,
+    });
   }
 
+  const data = (await response.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
   const reply =
     (data?.candidates?.[0]?.content?.parts ?? [])
       .map((p) => p.text ?? "")
@@ -283,8 +166,10 @@ generateRoutes.post("/api/chat", async (c) => {
   return c.json({ reply });
 });
 
-// Style classification across 10 fixed categories via OpenRouter (Gemini).
-// Results optionally persisted to D1 when project_id is supplied.
+// Style classification across 10 fixed categories via Gemini vision.
+// Each image URL is fetched and inlined as base64 so Google sees the
+// bytes directly (avoids the "GCS-only fileData" restriction for
+// remote URIs). Results optionally persisted to D1.
 generateRoutes.post("/api/analyze/style", async (c) => {
   const apiKey = c.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -300,44 +185,49 @@ generateRoutes.post("/api/analyze/style", async (c) => {
     throw new HTTPException(400, { message: "image_urls required" });
   }
 
-  const orKey = c.env.OPENROUTER_API_KEY || apiKey;
-
   const results = await Promise.allSettled(
     image_urls.slice(0, 12).map(async (url) => {
-      const resp = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${orKey}`,
-          "HTTP-Referer": "https://epic-studio.epicstage.co.kr",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-2.0-flash-001",
-          messages: [
-            {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: `Analyze this event design image at URL: ${url}. Classify its style using 2-3 tags from: [${STYLE_CATEGORIES.join(", ")}]. Return ONLY valid JSON: {"tags":["tag1","tag2"],"description":"one-line Korean description","confidence":0.0-1.0}`,
-                },
-                { type: "image_url", image_url: { url } },
-              ],
-            },
-          ],
-          temperature: 0.2,
-          max_tokens: 256,
-        }),
-      });
+      const imgResp = await fetch(url);
+      if (!imgResp.ok) {
+        return { image_url: url, style_tags: [], description: "이미지 fetch 실패", confidence: 0 };
+      }
+      const mimeType = imgResp.headers.get("content-type") ?? "image/png";
+      const data = arrayBufferToBase64(await imgResp.arrayBuffer());
 
-      if (!resp.ok) {
+      const geminiResp = await fetch(
+        `${GEMINI_BASE}/models/gemini-2.0-flash-001:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: "user",
+                parts: [
+                  {
+                    text: `Classify this event design image's style using 2-3 tags from: [${STYLE_CATEGORIES.join(", ")}]. Return ONLY valid JSON: {"tags":["tag1","tag2"],"description":"one-line Korean description","confidence":0.0-1.0}`,
+                  },
+                  { inlineData: { mimeType, data } },
+                ],
+              },
+            ],
+            generationConfig: { temperature: 0.2, maxOutputTokens: 256 },
+          }),
+        },
+      );
+
+      if (!geminiResp.ok) {
         return { image_url: url, style_tags: [], description: "분석 실패", confidence: 0 };
       }
 
-      const data = (await resp.json()) as {
-        choices?: Array<{ message?: { content?: string } }>;
+      const payload = (await geminiResp.json()) as {
+        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
       };
-      const text = data?.choices?.[0]?.message?.content ?? "{}";
+      const text =
+        (payload?.candidates?.[0]?.content?.parts ?? [])
+          .map((p) => p.text ?? "")
+          .join("") || "{}";
+
       try {
         const parsed = JSON.parse(text.replace(/```json?\n?|\n?```/g, "").trim()) as {
           tags?: string[];
@@ -381,4 +271,3 @@ generateRoutes.post("/api/analyze/style", async (c) => {
 
   return c.json({ results: analyzed });
 });
-

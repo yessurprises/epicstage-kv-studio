@@ -9,9 +9,7 @@ EPIC_SEARCH_API_KEY = "epic-search-e3715777a1c2c8d64819693119bea210"
 NAVER_CLIENT_ID = "5on7u9i_fU0eT_x8ZBHe"
 NAVER_CLIENT_SECRET = "CaobHiLxKw"
 
-# Set via: wrangler secret put OPENROUTER_API_KEY
-# OPENROUTER_API_KEY =
-# (fallback) wrangler secret put GEMINI_API_KEY
+# Set via: wrangler secret put GEMINI_API_KEY
 
 [[d1_databases]]
 binding = "EPIC_DB"

@@ -2,7 +2,6 @@ export interface Env {
   EPIC_DB: D1Database;
   EPIC_KV: KVNamespace;
   GEMINI_API_KEY: string;
-  OPENROUTER_API_KEY: string;
   NAVER_CLIENT_ID: string;
   NAVER_CLIENT_SECRET: string;
   EPIC_SEARCH_URL: string;
@@ -11,11 +10,6 @@ export interface Env {
   VECTORIZER_API_SECRET: string;
   RECRAFT_API_TOKEN: string;
 }
-
-// OpenRouter / Gemini configuration. OPENROUTER_MODEL is the "Nano Banana 2"
-// identifier that Epic-Studio uses for chat/vision.
-export const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
-export const OPENROUTER_MODEL = "google/gemini-3.1-flash-image-preview";
 
 // Routed through a Supabase Edge Function pinned to Seoul (ap-northeast-2)
 // so the outbound fetch to Google originates from a Korean IP. The CF

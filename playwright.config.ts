@@ -21,10 +21,13 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
   ],
+  // next.config.js does `output: "export"` in production, so `next start`
+  // won't serve the built artifacts. Use a static server against the
+  // exported `out/` directory instead.
   webServer: process.env.PLAYWRIGHT_NO_SERVER
     ? undefined
     : {
-        command: `pnpm start -- --port ${PORT}`,
+        command: `pnpm dlx serve@14 out -p ${PORT} --no-clipboard`,
         url: BASE_URL,
         timeout: 120_000,
         reuseExistingServer: !process.env.CI,

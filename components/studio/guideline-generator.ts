@@ -780,7 +780,7 @@ function repairJSON(json: string): any {
 }
 
 function parseJSON(text: string): Guideline {
-  let cleaned = text.replace(/```json?\n?/g, "").replace(/\n?```/g, "").trim();
+  const cleaned = text.replace(/```json?\n?/g, "").replace(/\n?```/g, "").trim();
   const start = cleaned.indexOf("{");
   if (start === -1) throw new Error("JSON 구조를 찾을 수 없습니다");
 

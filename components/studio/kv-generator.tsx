@@ -18,7 +18,7 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
     versions, selectedVersionId,
     ciImages, refAnalysis,
     setMasterKv, confirmMasterKv, markVariationsStale,
-    isProcessing, setProcessing, addLog,
+    addLog,
   } = useStore();
 
   const activeVersion = versions.find((v) => v.id === selectedVersionId);

@@ -137,7 +137,7 @@ function timeStr() {
   return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}:${d.getSeconds().toString().padStart(2, "0")}`;
 }
 
-export const useStore = create<StudioStore>((set, get) => ({
+export const useStore = create<StudioStore>((set) => ({
   step: 1,
   setStep: (s) => set({ step: s }),
 

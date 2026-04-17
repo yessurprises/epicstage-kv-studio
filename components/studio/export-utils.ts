@@ -141,30 +141,6 @@ function triggerDownload(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-function dataUrlToImageData(dataUrl: string): Promise<ImageData> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext("2d")!;
-      ctx.drawImage(img, 0, 0);
-      resolve(ctx.getImageData(0, 0, canvas.width, canvas.height));
-    };
-    img.onerror = reject;
-    img.src = dataUrl;
-  });
-}
-
-// Section ID → 한글 라벨 (UI에 표시되는 4개 섹션만)
-const GUIDE_IMAGE_LABELS: Record<string, string> = {
-  color_palette_sheet: "컬러 팔레트 시트",
-  mood_board: "무드 보드",
-  motif_board: "그래픽 모티프 보드",
-  layout_sketches: "레이아웃 가이드 스케치",
-};
-
 // Simple PDF generation (guideline summary + guide images)
 export function generateGuidelinePdf(
   guideline: any,

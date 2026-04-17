@@ -21,7 +21,6 @@ export default function StudioApp() {
     versions, activeVersionId, selectedVersionId,
     addVersion, setActiveVersion, selectVersionForStep3,
     isProcessing, setProcessing, addLog,
-    refAnalysis,
   } = useStore();
 
   const [generateError, setGenerateError] = useState("");

@@ -5,7 +5,7 @@ import { useStore } from "./use-store";
 import { MASTER_CATALOG, CATEGORIES } from "./constants";
 
 export default function CatalogSelector() {
-  const { selectedItems, toggleItem, selectAllItems, deselectAllItems, setStep, customItems, addCustomItem, removeCustomItem } = useStore();
+  const { selectedItems, toggleItem, selectAllItems, deselectAllItems, customItems, addCustomItem, removeCustomItem } = useStore();
   const [category, setCategory] = useState("전체");
   const [showCustom, setShowCustom] = useState(false);
   const [customName, setCustomName] = useState("");

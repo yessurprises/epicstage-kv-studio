@@ -170,7 +170,7 @@ function PlanItemCard({ item }: { item: ProductionPlanItem }) {
 export default function ProductionGrid() {
   const {
     productions, setProductions, selectedItems, isProcessing, setProcessing,
-    addLog, ciImages, refAnalysis, productionPlan, setProductionPlan, updateProduction,
+    addLog, ciImages, refAnalysis, productionPlan, setProductionPlan,
   } = useStore();
   const activeVersion = useStore((s) => s.versions.find((v) => v.id === s.selectedVersionId));
   const [planGenerating, setPlanGenerating] = useState(false);

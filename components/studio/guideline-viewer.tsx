@@ -302,7 +302,7 @@ export default function GuidelineViewer({ version }: { version: Version }) {
           {g.event_summary.theme && <div>테마: {g.event_summary.theme}</div>}
         </div>
         {g.event_summary.slogan && (
-          <div className="mt-3 text-sm italic text-indigo-300">"{g.event_summary.slogan}"</div>
+          <div className="mt-3 text-sm italic text-indigo-300">&ldquo;{g.event_summary.slogan}&rdquo;</div>
         )}
       </div>
 

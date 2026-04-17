@@ -63,6 +63,9 @@ async function callOpenRouterAsGemini(
     });
   }
 
+  // Pin OpenRouter to the Vertex AI provider for this same model. The
+  // default `google-ai-studio` provider inherits the public Gemini API
+  // geo-block (rejects HKG-origin requests), but Vertex does not.
   const resp = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
     method: "POST",
     headers: {
@@ -72,6 +75,7 @@ async function callOpenRouterAsGemini(
     },
     body: JSON.stringify({
       model: `google/${model}`,
+      provider: { order: ["google-vertex"], allow_fallbacks: false },
       messages: geminiContentsToOpenRouter(contents, system),
       temperature: (generationConfig?.temperature as number) ?? 0.7,
     }),

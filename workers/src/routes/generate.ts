@@ -3,6 +3,111 @@ import { HTTPException } from "hono/http-exception";
 import type { Env } from "../env";
 import { GEMINI_BASE, OPENROUTER_BASE } from "../env";
 
+// Cloudflare Workers egress IPs sometimes land in regions Google blocks for
+// the public Gemini API. Detect and fall back to OpenRouter, which proxies
+// Google with non-blocked egress.
+function isGeminiRegionError(status: number, body: string): boolean {
+  if (status !== 400) return false;
+  return (
+    body.includes("User location is not supported") ||
+    body.includes("FAILED_PRECONDITION")
+  );
+}
+
+// Convert Gemini `contents[].parts[]` to OpenAI/OpenRouter message content.
+function geminiContentsToOpenRouter(
+  contents: GeminiContent[],
+  system?: string,
+): Array<{ role: string; content: unknown }> {
+  const messages: Array<{ role: string; content: unknown }> = [];
+  if (system) messages.push({ role: "system", content: system });
+
+  for (const turn of contents) {
+    const parts: Array<Record<string, unknown>> = [];
+    for (const p of turn.parts) {
+      if ("text" in p) {
+        parts.push({ type: "text", text: p.text });
+      } else if ("inlineData" in p) {
+        parts.push({
+          type: "image_url",
+          image_url: {
+            url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}`,
+          },
+        });
+      }
+    }
+    const firstPart = parts[0];
+    messages.push({
+      role: turn.role === "model" ? "assistant" : "user",
+      content:
+        parts.length === 1 && firstPart && firstPart.type === "text"
+          ? firstPart.text
+          : parts,
+    });
+  }
+  return messages;
+}
+
+// OpenRouter chat → Gemini-shaped response (text + inline images).
+async function callOpenRouterAsGemini(
+  env: Env,
+  model: string,
+  contents: GeminiContent[],
+  generationConfig?: Record<string, unknown>,
+  system?: string,
+): Promise<Response> {
+  const key = env.OPENROUTER_API_KEY;
+  if (!key) {
+    throw new HTTPException(500, {
+      message: "Gemini region-blocked and OPENROUTER_API_KEY not configured for fallback",
+    });
+  }
+
+  const resp = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
+      "HTTP-Referer": "https://epic-studio.epicstage.co.kr",
+    },
+    body: JSON.stringify({
+      model: `google/${model}`,
+      messages: geminiContentsToOpenRouter(contents, system),
+      temperature: (generationConfig?.temperature as number) ?? 0.7,
+    }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new HTTPException(resp.status as 400, {
+      message: `OpenRouter fallback error: ${err}`,
+    });
+  }
+
+  const data = (await resp.json()) as {
+    choices?: Array<{
+      message?: {
+        content?: string;
+        images?: Array<{ image_url?: { url?: string } }>;
+      };
+    }>;
+  };
+  const msg = data?.choices?.[0]?.message;
+  const parts: Array<Record<string, unknown>> = [];
+  if (msg?.content) parts.push({ text: msg.content });
+  for (const img of msg?.images ?? []) {
+    const url = img?.image_url?.url;
+    if (!url?.startsWith("data:")) continue;
+    const match = url.match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) continue;
+    parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
+  }
+  return Response.json({
+    candidates: [{ content: { role: "model", parts } }],
+    _fallback: "openrouter",
+  });
+}
+
 interface InlineDataPart {
   inlineData: { mimeType: string; data: string };
 }
@@ -69,6 +174,16 @@ generateRoutes.post("/api/generate", async (c) => {
 
   if (!response.ok) {
     const err = await response.text();
+    if (isGeminiRegionError(response.status, err)) {
+      const fallback = await callOpenRouterAsGemini(
+        c.env,
+        model,
+        body.contents,
+        body.generationConfig,
+        body.system,
+      );
+      return fallback;
+    }
     throw new HTTPException(response.status as 400, {
       message: `Gemini error: ${err}`,
     });
@@ -124,7 +239,8 @@ generateRoutes.post("/api/chat", async (c) => {
     };
   });
 
-  const geminiUrl = `${GEMINI_BASE}/models/gemini-3.1-flash-image-preview:generateContent?key=${apiKey}`;
+  const chatModel = "gemini-3.1-flash-image-preview";
+  const geminiUrl = `${GEMINI_BASE}/models/${chatModel}:generateContent?key=${apiKey}`;
 
   const response = await fetch(geminiUrl, {
     method: "POST",
@@ -135,16 +251,26 @@ generateRoutes.post("/api/chat", async (c) => {
     }),
   });
 
-  if (!response.ok) {
-    const err = await response.text();
-    throw new HTTPException(response.status as 400, {
-      message: `Gemini chat error: ${err}`,
-    });
-  }
-
-  const data = (await response.json()) as {
+  let data: {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
   };
+
+  if (!response.ok) {
+    const err = await response.text();
+    if (isGeminiRegionError(response.status, err)) {
+      const fallback = await callOpenRouterAsGemini(c.env, chatModel, contents, {
+        temperature: 0.7,
+      });
+      data = (await fallback.json()) as typeof data;
+    } else {
+      throw new HTTPException(response.status as 400, {
+        message: `Gemini chat error: ${err}`,
+      });
+    }
+  } else {
+    data = (await response.json()) as typeof data;
+  }
+
   const reply =
     (data?.candidates?.[0]?.content?.parts ?? [])
       .map((p) => p.text ?? "")

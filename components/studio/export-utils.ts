@@ -27,6 +27,22 @@ export async function downloadAsZip(
   URL.revokeObjectURL(url);
 }
 
+// ─── 대지(no-text) PNG 다운로드 — 벡터화 전 중간 단계 ────────────────────────
+
+/**
+ * generateNoTextVersion()으로 텍스트 제거 후 PNG로 바로 다운로드.
+ * 배경 제거나 벡터화 없음.
+ */
+export async function downloadNoTextPng(
+  imageDataUrl: string,
+  filename: string = "kv-notext.png"
+) {
+  const { generateNoTextVersion } = await import("./guideline-generator");
+  const noTextUrl = await generateNoTextVersion(imageDataUrl);
+  const blob = await (await fetch(noTextUrl)).blob();
+  triggerDownload(blob, filename);
+}
+
 // ─── 투명 PNG (대지→배경 제거) 다운로드 ──────────────────────────────────────
 
 /**

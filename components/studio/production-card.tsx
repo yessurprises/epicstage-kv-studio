@@ -128,29 +128,30 @@ export default function ProductionCard({ prod, onDelete }: Props) {
       </div>
 
       <div className="p-4">
-        <div
-          className="flex items-center justify-center rounded-lg bg-gray-950"
-          style={{ minHeight: 120 }}
-        >
-          {prod.status === "generating" && (
-            <div className="animate-pulse py-12 text-sm text-gray-600">생성 중...</div>
-          )}
-          {prod.status === "done" && prod.imageUrl && (
-            <img
-              src={prod.imageUrl}
-              alt={prod.name}
-              className="w-full rounded-lg object-contain"
-            />
-          )}
-          {prod.status === "error" && (
-            <div className="py-12 text-xs text-red-400" role="alert">
-              {prod.error || "생성 실패"}
-            </div>
-          )}
-          {prod.status === "pending" && (
-            <div className="py-12 text-xs text-gray-600">생성 전</div>
-          )}
-        </div>
+        {prod.status === "done" && prod.imageUrl ? (
+          <img
+            src={prod.imageUrl}
+            alt={prod.name}
+            className="block w-full rounded-lg"
+          />
+        ) : (
+          <div
+            className="flex items-center justify-center rounded-lg bg-gray-950"
+            style={{ minHeight: 120 }}
+          >
+            {prod.status === "generating" && (
+              <div className="animate-pulse py-12 text-sm text-gray-600">생성 중...</div>
+            )}
+            {prod.status === "error" && (
+              <div className="py-12 text-xs text-red-400" role="alert">
+                {prod.error || "생성 실패"}
+              </div>
+            )}
+            {prod.status === "pending" && (
+              <div className="py-12 text-xs text-gray-600">생성 전</div>
+            )}
+          </div>
+        )}
 
         {prod.status === "done" && (
           <div className="mt-3 space-y-2">

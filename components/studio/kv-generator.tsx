@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { useStore, type MasterKv } from "./use-store";
 import { generateMasterKV, generateRecraftKV } from "./guideline-generator";
-import { downloadTransparentPng, downloadAsSvg, downloadNoTextSvg, downloadTransparentSvg } from "./export-utils";
+import { downloadNoTextPng, downloadTransparentPng, downloadAsSvg, downloadNoTextSvg, downloadTransparentSvg } from "./export-utils";
 import type { VectorizeProvider } from "./vectorize-service";
 import { KV_RATIOS } from "./constants";
 
@@ -28,6 +28,7 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
   const [selectedRatio, setSelectedRatio] = useState<string>("16:9");
   const [engine, setEngine] = useState<KvEngine>("gemini");
   const [generating, setGenerating] = useState(false);
+  const [exportingNoText, setExportingNoText] = useState(false);
   const [exportingPng, setExportingPng] = useState(false);
   const [exportingPngStage, setExportingPngStage] = useState<"notext" | "rembg" | "">("");
   const [exportingSvg, setExportingSvg] = useState(false);
@@ -188,7 +189,7 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
               className="w-full object-contain"
             />
             {masterKv.confirmed && (
-              <div className="absolute right-3 top-3 flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-medium text-emerald-400 backdrop-blur-sm ring-1 ring-emerald-500/30">
+              <div className="pointer-events-none absolute right-3 top-3 flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-medium text-emerald-400 backdrop-blur-sm ring-1 ring-emerald-500/30">
                 <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 16 16">
                   <path d="M14.3.3c.4-.4 1-.4 1.4 0 .4.4.4 1 0 1.4l-8 8c-.2.2-.4.3-.7.3-.3 0-.5-.1-.7-.3l-4-4c-.4-.4-.4-1 0-1.4.4-.4 1-.4 1.4 0L7 7.6 14.3.3z" />
                 </svg>
@@ -262,6 +263,40 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
         {masterKv?.imageUrl && (
           <>
             <div className="h-6 w-px bg-gray-800" />
+
+            {/* 대지 PNG — 벡터화/배경제거 전 중간 단계 */}
+            <button
+              onClick={async () => {
+                setExportingNoText(true);
+                setError("");
+                try {
+                  const name = `${activeVersion?.guideline?.event_summary?.name || "kv"}-notext.png`;
+                  await downloadNoTextPng(masterKv.imageUrl, name);
+                  addLog("대지 PNG 다운로드 완료", "ok");
+                } catch (e: any) { setError(e.message); }
+                setExportingNoText(false);
+              }}
+              disabled={exportingNoText || exportingPng || exportingSvg}
+              className="btn flex items-center gap-2 rounded-xl border border-gray-700 px-4 py-3 text-sm text-gray-400 transition-colors hover:border-indigo-500/50 hover:text-indigo-300 disabled:opacity-50"
+            >
+              {exportingNoText ? (
+                <>
+                  <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  대지 생성 중...
+                </>
+              ) : (
+                <>
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  대지 PNG
+                </>
+              )}
+            </button>
+
             <button
               onClick={async () => {
                 setExportingPng(true);
@@ -274,7 +309,7 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
                 setExportingPng(false);
                 setExportingPngStage("");
               }}
-              disabled={exportingPng || exportingSvg}
+              disabled={exportingNoText || exportingPng || exportingSvg}
               className="btn flex items-center gap-2 rounded-xl border border-gray-700 px-4 py-3 text-sm text-gray-400 transition-colors hover:border-indigo-500/50 hover:text-indigo-300 disabled:opacity-50"
             >
               {exportingPng ? (
@@ -316,7 +351,7 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
                 } catch (e: any) { setError(e.message); }
                 setExportingSvg(false); setExportingSvgType("");
               }}
-              disabled={exportingPng || exportingSvg}
+              disabled={exportingNoText || exportingPng || exportingSvg}
               className="btn flex items-center gap-2 rounded-xl border border-gray-700 px-3 py-3 text-xs text-gray-400 transition-colors hover:border-indigo-500/50 hover:text-indigo-300 disabled:opacity-50"
             >
               {exportingSvgType === "original" ? "변환 중..." : "원본 SVG"}
@@ -333,7 +368,7 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
                 } catch (e: any) { setError(e.message); }
                 setExportingSvg(false); setExportingSvgType("");
               }}
-              disabled={exportingPng || exportingSvg}
+              disabled={exportingNoText || exportingPng || exportingSvg}
               className="btn flex items-center gap-2 rounded-xl border border-gray-700 px-3 py-3 text-xs text-gray-400 transition-colors hover:border-indigo-500/50 hover:text-indigo-300 disabled:opacity-50"
             >
               {exportingSvgType === "notext" ? "대지→SVG 중..." : "대지 SVG"}
@@ -350,7 +385,7 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
                 } catch (e: any) { setError(e.message); }
                 setExportingSvg(false); setExportingSvgType("");
               }}
-              disabled={exportingPng || exportingSvg}
+              disabled={exportingNoText || exportingPng || exportingSvg}
               className="btn flex items-center gap-2 rounded-xl border border-gray-700 px-3 py-3 text-xs text-gray-400 transition-colors hover:border-indigo-500/50 hover:text-indigo-300 disabled:opacity-50"
             >
               {exportingSvgType === "transparent" ? "투명→SVG 중..." : "투명 SVG"}

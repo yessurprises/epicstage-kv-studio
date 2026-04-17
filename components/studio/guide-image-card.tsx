@@ -49,18 +49,19 @@ export default function GuideImageCard({ version, sectionKey, autoGenerating }: 
   return (
     <div className="mt-4 rounded-lg border border-gray-800 overflow-hidden">
       {imageUrl ? (
-        <div className="relative group">
-          <img src={imageUrl} alt={item.label} className="w-full" />
-          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/60 transition-opacity">
+        <>
+          <img src={imageUrl} alt={item.label} className="block w-full" />
+          <div className="flex items-center justify-between bg-gray-900/60 px-4 py-2">
+            <span className="text-xs text-gray-500">{item.label}</span>
             <button
               onClick={handleGenerate}
               disabled={isLoading}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-xs text-white hover:bg-indigo-500 disabled:opacity-50"
+              className="rounded border border-gray-700 px-3 py-1 text-xs text-gray-400 hover:border-indigo-500/50 hover:text-indigo-400 disabled:opacity-50"
             >
               {isLoading ? "재생성 중..." : "재생성"}
             </button>
           </div>
-        </div>
+        </>
       ) : (
         <div className="flex items-center justify-between bg-gray-900/60 px-4 py-3">
           <span className="text-xs text-gray-500">{item.label}</span>

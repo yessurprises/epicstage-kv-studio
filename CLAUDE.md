@@ -101,7 +101,7 @@ Cruip open-react-template 기반 (Next.js + Tailwind CSS 다크 테마).
 
 ## Secrets (wrangler secret put)
 
-OPENROUTER_API_KEY, GEMINI_API_KEY (fallback)
+GEMINI_API_KEY (routed through Seoul-pinned Supabase Edge proxy to bypass HKG colo block)
 
 ## Approval
 

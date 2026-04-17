@@ -6,7 +6,6 @@ import { generateRoutes } from "./routes/generate";
 import { imageRoutes } from "./routes/images";
 import { projectRoutes } from "./routes/projects";
 import { searchRoutes } from "./routes/search";
-import { storageRoutes } from "./routes/storage";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -23,7 +22,6 @@ app.use(
 app.get("/", (c) => c.json({ status: "ok", service: "epic-studio-api" }));
 
 app.route("/", generateRoutes);
-app.route("/", storageRoutes);
 app.route("/", projectRoutes);
 app.route("/", searchRoutes);
 app.route("/", imageRoutes);

@@ -1,24 +1,22 @@
-export const metadata = {
-  title: "Epic-Studio — AI Event Design",
-  description: "AI가 디자인, 사람은 리터치만. 행사 제작물 53종 자동 생성.",
-};
+"use client";
 
-import PageIllustration from "@/components/page-illustration";
-import Hero from "@/components/hero-home";
-import Workflows from "@/components/workflows";
-import Features from "@/components/features";
-import Testimonials from "@/components/testimonials";
-import Cta from "@/components/cta";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 export default function Home() {
+  const router = useRouter();
+
+  useEffect(() => {
+    router.replace("/studio");
+  }, [router]);
+
   return (
     <>
-      <PageIllustration />
-      <Hero />
-      <Workflows />
-      <Features />
-      <Testimonials />
-      <Cta />
+      {/* Non-JS fallback: meta refresh still fires on static HTML. */}
+      <meta httpEquiv="refresh" content="0;url=/studio/" />
+      <div className="flex min-h-[40vh] items-center justify-center pt-28 text-sm text-gray-500 md:pt-36">
+        Studio로 이동 중…
+      </div>
     </>
   );
 }

@@ -141,27 +141,3 @@ export function generate(
   });
 }
 
-export async function uploadImage(
-  file: Blob,
-  filename = "image.png",
-  signal?: AbortSignal,
-): Promise<unknown> {
-  const formData = new FormData();
-  formData.append("file", file, filename);
-  return fetchJson(`${API_BASE}/api/upload`, { method: "POST", body: formData, signal });
-}
-
-export async function requestUpscale(
-  file: Blob,
-  scale = 4,
-  signal?: AbortSignal,
-): Promise<unknown> {
-  const formData = new FormData();
-  formData.append("file", file, "image.png");
-  formData.append("scale", String(scale));
-  return fetchJson(`${API_BASE}/api/upscale`, { method: "POST", body: formData, signal });
-}
-
-export function imageUrl(key: string): string {
-  return `${API_BASE}/api/images/${encodeURIComponent(key)}`;
-}

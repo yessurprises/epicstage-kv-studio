@@ -18,9 +18,8 @@ binding = "EPIC_DB"
 database_name = "epic-studio-db"
 database_id = "9e459cd2-932a-4587-a904-6b3f1ee9edb9"
 
-# [[r2_buckets]]
-# binding = "EPIC_STORAGE"
-# bucket_name = "epic-studio-storage"
+# R2 binding intentionally absent — storage routes were removed as dead
+# code. Re-add [[r2_buckets]] here when resurrecting image upload/share.
 
 [[kv_namespaces]]
 binding = "EPIC_KV"

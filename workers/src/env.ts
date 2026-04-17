@@ -1,6 +1,5 @@
 export interface Env {
   EPIC_DB: D1Database;
-  EPIC_STORAGE: R2Bucket;
   EPIC_KV: KVNamespace;
   GEMINI_API_KEY: string;
   OPENROUTER_API_KEY: string;

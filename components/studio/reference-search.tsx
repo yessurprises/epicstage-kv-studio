@@ -3,7 +3,6 @@
 import { useRef, useState } from "react";
 import { useStore } from "./use-store";
 import { EVENT_TYPES } from "./constants";
-import { analyzeRefs } from "./guideline-generator";
 import { isLocal, SEARCH_URL } from "./config";
 
 interface RefResult {
@@ -64,7 +63,6 @@ export default function ReferenceSearch({
   const [eventType, setEventType] = useState("");
   const [results, setResults] = useState<RefResult[]>([]);
   const [loading, setLoading] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState("");
   const [tab, setTab] = useState<"search" | "upload">("search");
   const fileRef = useRef<HTMLInputElement>(null);
@@ -112,21 +110,6 @@ export default function ReferenceSearch({
     }
   }
 
-  async function handleAnalyze() {
-    if (refFiles.length === 0) return;
-    setAnalyzing(true);
-    setError("");
-    try {
-      const analysis = await analyzeRefs(
-        refFiles.map((f) => ({ mime: f.mime, base64: f.base64 }))
-      );
-      setRefAnalysis(analysis);
-    } catch (e: any) {
-      setError(e.message);
-    }
-    setAnalyzing(false);
-  }
-
   return (
     <div className="rounded-xl border border-gray-800 bg-gray-900/50">
       {/* Header */}
@@ -137,15 +120,6 @@ export default function ReferenceSearch({
             <span className="ml-2 text-xs font-normal text-indigo-400">{totalSelected}장 선택</span>
           )}
         </h3>
-        {refFiles.length > 0 && (
-          <button
-            onClick={handleAnalyze}
-            disabled={analyzing}
-            className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
-          >
-            {analyzing ? "분석 중..." : "Gemini 분석"}
-          </button>
-        )}
       </div>
 
       {/* Selected images — unified strip */}

@@ -3,6 +3,14 @@ main = "src/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
+# Pin Worker execution to US colos so egress IP stays out of regions
+# Google blocks for the Gemini API (HKG, etc.). Without this hint, CF may
+# schedule the Worker in Asian colos and Gemini returns 400
+# FAILED_PRECONDITION "User location is not supported".
+[placement]
+mode = "smart"
+hint = "aws:us-east-1"
+
 [vars]
 EPIC_SEARCH_URL = "http://158.247.193.215:8788"
 EPIC_SEARCH_API_KEY = "epic-search-e3715777a1c2c8d64819693119bea210"

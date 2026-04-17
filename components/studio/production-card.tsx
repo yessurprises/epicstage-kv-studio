@@ -17,7 +17,7 @@ export default function ProductionCard({ prod, onDelete }: Props) {
   const activeVersion = useStore((s) =>
     s.versions.find((v) => v.id === s.selectedVersionId),
   );
-  const [svgProvider, setSvgProvider] = useState<VectorizeProvider>("vectorizer");
+  const [svgProvider, setSvgProvider] = useState<VectorizeProvider>("arrow");
   const [vectorizing, setVectorizing] = useState(false);
 
   async function handleRegenerate() {
@@ -189,7 +189,8 @@ export default function ProductionCard({ prod, onDelete }: Props) {
                 aria-label="벡터화 엔진 선택"
                 className="rounded border border-gray-800 bg-gray-950 px-2 py-1 text-[10px] text-gray-400"
               >
-                <option value="vectorizer">Vectorizer.ai</option>
+                <option value="arrow">Arrow 1.1</option>
+                <option value="arrow-max">Arrow 1.1 Max</option>
                 <option value="recraft">Recraft</option>
               </select>
               <button

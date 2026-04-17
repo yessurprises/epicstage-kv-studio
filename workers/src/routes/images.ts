@@ -4,6 +4,18 @@ import type { Env } from "../env";
 
 export const imageRoutes = new Hono<{ Bindings: Env }>();
 
+// Chunked base64 encode — avoids call-stack overflow for large image buffers
+// on the Workers runtime (no Node Buffer available).
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  const chunk = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
 // Recraft V4 KV generation. V4 doesn't accept `style` / `style_id` — colors
 // + prompt are the only style levers.
 imageRoutes.post("/api/recraft/generate-kv", async (c) => {
@@ -55,12 +67,12 @@ imageRoutes.post("/api/recraft/generate-kv", async (c) => {
   });
 });
 
-// Vectorize a raster image → SVG. Two providers: vectorizer.ai (default) or
-// Recraft AI. Both return `image/svg+xml` text.
+// Vectorize a raster image → SVG. Providers: Quiver Arrow 1.1 (default),
+// Arrow 1.1 Max (higher quality), or Recraft AI. All return `image/svg+xml`.
 imageRoutes.post("/api/vectorize", async (c) => {
   const formData = await c.req.formData();
   const image = formData.get("image") as File | null;
-  const provider = (formData.get("provider") as string) || "vectorizer";
+  const provider = (formData.get("provider") as string) || "arrow";
 
   if (!image) {
     throw new HTTPException(400, { message: "image required" });
@@ -96,26 +108,36 @@ imageRoutes.post("/api/vectorize", async (c) => {
     return c.text("Recraft: no SVG in response", 500);
   }
 
-  const apiId = c.env.VECTORIZER_API_ID;
-  const apiSecret = c.env.VECTORIZER_API_SECRET;
-  if (!apiId || !apiSecret) {
-    throw new HTTPException(500, { message: "VECTORIZER_API_ID/SECRET not configured" });
+  const apiKey = c.env.QUIVERAI_API_KEY;
+  if (!apiKey) {
+    throw new HTTPException(500, { message: "QUIVERAI_API_KEY not configured" });
   }
 
-  const form = new FormData();
-  form.append("image", image);
-  form.append("output.file_format", "svg");
-  form.append("output.svg.version", "svg_1_1");
-  form.append("processing.max_colors", "0");
+  const model = provider === "arrow-max" ? "arrow-1.1-max" : "arrow-1.1";
+  const buf = await image.arrayBuffer();
+  const base64 = arrayBufferToBase64(buf);
 
-  const resp = await fetch("https://api.vectorizer.ai/api/v1/vectorize", {
+  const resp = await fetch("https://api.quiver.ai/v1/svgs/vectorizations", {
     method: "POST",
-    headers: { Authorization: "Basic " + btoa(`${apiId}:${apiSecret}`) },
-    body: form,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      image: { base64 },
+      stream: false,
+      auto_crop: false,
+    }),
   });
   if (!resp.ok) {
     const err = await resp.text();
-    return c.text(`Vectorizer.ai error: ${err}`, resp.status as 400);
+    return c.text(`Arrow error: ${err}`, resp.status as 400);
   }
-  return c.text(await resp.text(), 200, { "Content-Type": "image/svg+xml" });
+  const data = (await resp.json()) as { data?: Array<{ svg?: string }> };
+  const svg = data?.data?.[0]?.svg;
+  if (!svg) {
+    return c.text("Arrow: no SVG in response", 500);
+  }
+  return c.text(svg, 200, { "Content-Type": "image/svg+xml" });
 });

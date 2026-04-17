@@ -7,8 +7,7 @@ export interface Env {
   NAVER_CLIENT_SECRET: string;
   EPIC_SEARCH_URL: string;
   EPIC_SEARCH_API_KEY: string;
-  VECTORIZER_API_ID: string;
-  VECTORIZER_API_SECRET: string;
+  QUIVERAI_API_KEY: string;
   RECRAFT_API_TOKEN: string;
 }
 

@@ -83,7 +83,7 @@ import { vectorizeImage, type VectorizeProvider } from "./vectorize-service";
 export async function downloadAsSvg(
   imageDataUrl: string,
   filename: string = "kv-vector.svg",
-  provider: VectorizeProvider = "vectorizer"
+  provider: VectorizeProvider = "arrow"
 ) {
   const svgString = await vectorizeImage(imageDataUrl, provider);
   const blob = new Blob([svgString], { type: "image/svg+xml" });
@@ -96,7 +96,7 @@ export async function downloadAsSvg(
 export async function downloadNoTextSvg(
   imageDataUrl: string,
   filename: string = "kv-notext-vector.svg",
-  provider: VectorizeProvider = "vectorizer",
+  provider: VectorizeProvider = "arrow",
   onProgress?: (stage: "notext" | "vectorize") => void
 ) {
   onProgress?.("notext");
@@ -115,7 +115,7 @@ export async function downloadNoTextSvg(
 export async function downloadTransparentSvg(
   imageDataUrl: string,
   filename: string = "kv-transparent-vector.svg",
-  provider: VectorizeProvider = "vectorizer",
+  provider: VectorizeProvider = "arrow",
   onProgress?: (stage: "notext" | "rembg" | "vectorize") => void
 ) {
   // Step 1: 대지

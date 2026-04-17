@@ -33,7 +33,7 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
   const [exportingPngStage, setExportingPngStage] = useState<"notext" | "rembg" | "">("");
   const [exportingSvg, setExportingSvg] = useState(false);
   const [exportingSvgType, setExportingSvgType] = useState<"" | "original" | "notext" | "transparent">("");
-  const [svgProvider, setSvgProvider] = useState<VectorizeProvider>("vectorizer");
+  const [svgProvider, setSvgProvider] = useState<VectorizeProvider>("arrow");
   const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -336,7 +336,8 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
               onChange={(e) => setSvgProvider(e.target.value as VectorizeProvider)}
               className="rounded-lg border border-gray-700 bg-gray-900 px-2 py-2 text-xs text-gray-400"
             >
-              <option value="vectorizer">Vectorizer.ai</option>
+              <option value="arrow">Arrow 1.1</option>
+              <option value="arrow-max">Arrow 1.1 Max</option>
               <option value="recraft">Recraft AI</option>
             </select>
 

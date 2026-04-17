@@ -1,6 +1,6 @@
 import { VECTORIZE_URL } from "./config";
 
-export type VectorizeProvider = "vectorizer" | "recraft";
+export type VectorizeProvider = "arrow" | "arrow-max" | "recraft";
 
 // 세션 내 캐시 (같은 이미지 반복 요청 방지)
 const cache = new Map<string, string>();
@@ -17,7 +17,7 @@ function cacheKey(imageDataUrl: string, provider: VectorizeProvider): string {
  */
 export async function vectorizeImage(
   imageDataUrl: string,
-  provider: VectorizeProvider = "vectorizer"
+  provider: VectorizeProvider = "arrow"
 ): Promise<string> {
   const key = cacheKey(imageDataUrl, provider);
 

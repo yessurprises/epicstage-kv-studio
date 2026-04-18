@@ -117,27 +117,62 @@ imageRoutes.post("/api/vectorize", async (c) => {
   const buf = await image.arrayBuffer();
   const base64 = arrayBufferToBase64(buf);
 
+  // Stream Arrow's SSE response. Sync mode (stream:false) frequently exceeds
+  // the 100s gateway timeout for full vectorizations and returns 524.
+  // Streaming keeps the upstream connection alive via incremental events;
+  // we accumulate the SVG from `draft` events and finalize on `content`.
   const resp = await fetch("https://api.quiver.ai/v1/svgs/vectorizations", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
+      Accept: "text/event-stream",
     },
     body: JSON.stringify({
       model,
       image: { base64 },
-      stream: false,
+      stream: true,
       auto_crop: false,
     }),
   });
-  if (!resp.ok) {
-    const err = await resp.text();
+  if (!resp.ok || !resp.body) {
+    const err = await resp.text().catch(() => "no body");
     return c.text(`Arrow error: ${err}`, resp.status as 400);
   }
-  const data = (await resp.json()) as { data?: Array<{ svg?: string }> };
-  const svg = data?.data?.[0]?.svg;
-  if (!svg) {
-    return c.text("Arrow: no SVG in response", 500);
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalSvg = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE events are separated by blank lines. Process complete events;
+    // keep the trailing partial event in the buffer.
+    const events = buffer.split(/\n\n/);
+    buffer = events.pop() ?? "";
+
+    for (const evt of events) {
+      const dataLines: string[] = [];
+      for (const line of evt.split("\n")) {
+        if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+      }
+      const payload = dataLines.join("\n");
+      if (!payload || payload === "[DONE]") continue;
+      try {
+        const obj = JSON.parse(payload) as { svg?: string; type?: string };
+        if (obj.svg) finalSvg = obj.svg; // last svg wins (content > draft)
+      } catch {
+        /* ignore non-JSON (heartbeats, comments) */
+      }
+    }
   }
-  return c.text(svg, 200, { "Content-Type": "image/svg+xml" });
+
+  if (!finalSvg) {
+    return c.text("Arrow: no SVG in stream", 500);
+  }
+  return c.text(finalSvg, 200, { "Content-Type": "image/svg+xml" });
 });

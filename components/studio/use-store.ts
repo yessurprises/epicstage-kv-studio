@@ -82,6 +82,7 @@ interface StudioStore {
 
   productionPlan: ProductionPlanItem[] | null;
   setProductionPlan: (p: ProductionPlanItem[] | null) => void;
+  updatePlanItem: (num: number, patch: Partial<ProductionPlanItem>) => void;
 
   productions: Production[];
   setProductions: (p: Production[]) => void;
@@ -236,6 +237,11 @@ export const useStore = create<StudioStore>((set) => ({
 
   productionPlan: null,
   setProductionPlan: (p) => set({ productionPlan: p }),
+  updatePlanItem: (num, patch) =>
+    set((s) => ({
+      productionPlan:
+        s.productionPlan?.map((p) => (p.num === num ? { ...p, ...patch } : p)) ?? null,
+    })),
 
   productions: [],
   setProductions: (p) => set({ productions: p }),

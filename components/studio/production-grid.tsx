@@ -151,6 +151,10 @@ export default function ProductionGrid() {
       subtext: planItem.subtext,
       layoutNote: planItem.layout_note,
       imagePrompt: planItem.image_prompt,
+      imageSize: planItem.image_size,
+      temperature: planItem.temperature,
+      seed: planItem.seed,
+      overridden: planItem.overridden,
       fullPrompt: "",
     }));
 

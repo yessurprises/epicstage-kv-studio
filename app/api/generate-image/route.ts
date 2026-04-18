@@ -4,11 +4,12 @@ const WORKER_BASE = "https://epic-studio-api.kbm-32f.workers.dev";
 const MAX_IMAGES = 6;
 
 export async function POST(req: Request) {
-  const { prompt, system, ciImages, guideImageUrls } = await req.json() as {
+  const { prompt, system, ciImages, guideImageUrls, generationConfig } = await req.json() as {
     prompt: string;
     system?: string;
     ciImages?: Array<{ mime: string; base64: string }>;
     guideImageUrls?: string[]; // data:mime;base64,... 형식
+    generationConfig?: Record<string, unknown>;
   };
 
   if (!prompt) {
@@ -44,7 +45,7 @@ export async function POST(req: Request) {
     body: JSON.stringify({
       model: "gemini-3.1-flash-image-preview",
       contents: [{ role: "user", parts }],
-      generationConfig: {
+      generationConfig: generationConfig ?? {
         responseModalities: ["TEXT", "IMAGE"],
         temperature: 1,
       },

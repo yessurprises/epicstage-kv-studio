@@ -18,6 +18,42 @@ export interface ProductionInput {
   layoutNote?: string;
   imagePrompt?: string;
   renderInstruction?: string;
+  imageSize?: "1K" | "2K";
+  temperature?: number;
+  seed?: number;
+  overridden?: boolean;
+}
+
+const GEMINI_SUPPORTED_RATIOS = new Set([
+  "1:1",
+  "4:3",
+  "3:4",
+  "16:9",
+  "9:16",
+  "3:2",
+  "2:3",
+  "4:5",
+  "5:4",
+  "21:9",
+  "9:21",
+]);
+
+function buildGenerationConfig(prod: ProductionInput): Record<string, unknown> {
+  const cfg: Record<string, unknown> = {
+    responseModalities: ["TEXT", "IMAGE"],
+    temperature: prod.temperature ?? 1,
+  };
+  if (prod.seed !== undefined) cfg.seed = prod.seed;
+  const wantsImageConfig =
+    prod.imageSize !== undefined ||
+    (prod.overridden === true && GEMINI_SUPPORTED_RATIOS.has(prod.ratio));
+  if (wantsImageConfig) {
+    const imageConfig: Record<string, unknown> = {};
+    if (GEMINI_SUPPORTED_RATIOS.has(prod.ratio)) imageConfig.aspectRatio = prod.ratio;
+    if (prod.imageSize) imageConfig.imageSize = prod.imageSize;
+    cfg.imageConfig = imageConfig;
+  }
+  return cfg;
 }
 
 /**
@@ -71,6 +107,7 @@ REQUIREMENTS:
 - Match the design system and master KV precisely`;
 
   const url = IMAGE_URL();
+  const generationConfig = buildGenerationConfig(prod);
 
   if (isLocal()) {
     const resp = await fetch(url, {
@@ -81,6 +118,7 @@ REQUIREMENTS:
         system: PRODUCTION_SYSTEM,
         ciImages: ciImages ?? [],
         guideImageUrls: masterKvUrl ? [masterKvUrl] : [],
+        generationConfig,
       }),
     });
     if (!resp.ok) throw new Error(`이미지 생성 실패: ${resp.status}`);
@@ -108,7 +146,7 @@ REQUIREMENTS:
     body: JSON.stringify({
       model: "gemini-3.1-flash-image-preview",
       contents: [{ role: "user", parts }],
-      generationConfig: { responseModalities: ["TEXT", "IMAGE"], temperature: 1 },
+      generationConfig,
     }),
   });
 

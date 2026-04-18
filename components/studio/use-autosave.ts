@@ -7,6 +7,8 @@ import { useStore } from "./use-store";
 export const AUTOSAVE_ID = "__autosave__";
 const DEBOUNCE_MS = 500;
 
+type StoreState = ReturnType<typeof useStore.getState>;
+
 interface AutosaveSnapshot {
   projectId: string;
   lastModifiedAt: number;
@@ -14,12 +16,18 @@ interface AutosaveSnapshot {
   tier: string;
   eventInfo: string;
   styleOverride: string;
-  versions: ReturnType<typeof useStore.getState>["versions"];
+  versions: StoreState["versions"];
   selectedVersionId: string | null;
   activeVersionId: string | null;
-  productionPlan: ReturnType<typeof useStore.getState>["productionPlan"];
-  productions: ReturnType<typeof useStore.getState>["productions"];
+  productionPlan: StoreState["productionPlan"];
+  productions: StoreState["productions"];
   selectedItems: number[];
+  // 첨부 자산 — 수동 저장과 동일하게 포함해야 복원 시 누락 없음
+  ciImages: StoreState["ciImages"];
+  ciDocs: StoreState["ciDocs"];
+  refFiles: StoreState["refFiles"];
+  selectedRefs: string[];
+  refAnalysis: string;
 }
 
 function snapshot(): AutosaveSnapshot {
@@ -37,6 +45,11 @@ function snapshot(): AutosaveSnapshot {
     productionPlan: s.productionPlan,
     productions: s.productions,
     selectedItems: Array.from(s.selectedItems),
+    ciImages: s.ciImages,
+    ciDocs: s.ciDocs,
+    refFiles: s.refFiles,
+    selectedRefs: s.selectedRefs,
+    refAnalysis: s.refAnalysis,
   };
 }
 
@@ -122,12 +135,20 @@ export function useRestorableAutosave(): {
       s.setTier(saved.tier);
       s.setEventInfo(saved.eventInfo);
       s.setStyleOverride(saved.styleOverride ?? "");
+      s.setRefAnalysis(saved.refAnalysis ?? "");
       saved.versions.forEach((v) => s.addVersion(v));
       if (saved.activeVersionId) s.setActiveVersion(saved.activeVersionId);
       if (saved.selectedVersionId) s.selectVersionForStep3(saved.selectedVersionId);
       if (saved.productionPlan) s.setProductionPlan(saved.productionPlan);
       if (saved.productions) s.setProductions(saved.productions);
       saved.selectedItems.forEach((idx) => s.toggleItem(idx));
+      // 첨부 자산은 setter가 add/remove뿐이므로 setState로 직접 교체
+      useStore.setState({
+        ciImages: saved.ciImages ?? [],
+        ciDocs: saved.ciDocs ?? [],
+        refFiles: saved.refFiles ?? [],
+        selectedRefs: saved.selectedRefs ?? [],
+      });
       setPending(null);
     } catch {
       setPending(null);

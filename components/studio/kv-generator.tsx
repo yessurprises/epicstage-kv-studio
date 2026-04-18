@@ -1,10 +1,15 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useStore, type MasterKv } from "./use-store";
-import { generateMasterKV, generateRecraftKV, buildMasterKvPrompt } from "./guideline-generator";
+import { useStore, type MasterKv, type SvgCandidate } from "./use-store";
+import {
+  generateMasterKV,
+  generateRecraftKV,
+  buildMasterKvPrompt,
+  generateSvgReadyKvBatch,
+} from "./guideline-generator";
 import { downloadNoTextPng, downloadTransparentPng, downloadAsSvg, downloadNoTextSvg, downloadTransparentSvg } from "./export-utils";
-import type { VectorizeProvider } from "./vectorize-service";
+import { vectorizeImage, type VectorizeProvider } from "./vectorize-service";
 import { KV_RATIOS } from "./constants";
 
 const RATIO_LABELS = {
@@ -18,6 +23,7 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
     versions, selectedVersionId,
     ciImages, refAnalysis, refFiles,
     setMasterKv, confirmMasterKv, markVariationsStale,
+    addSvgCandidates, updateSvgCandidate, removeSvgCandidate,
     addLog,
   } = useStore();
 
@@ -37,6 +43,13 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
   const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // SVG 배치 트랙
+  const [svgBatchGenerating, setSvgBatchGenerating] = useState(false);
+  const [svgBatchCount, setSvgBatchCount] = useState(2);
+  const [svgBatchProvider, setSvgBatchProvider] = useState<VectorizeProvider>("arrow");
+  const [vectorizingIds, setVectorizingIds] = useState<Set<string>>(new Set());
+  const svgCandidates = activeVersion?.svgCandidates ?? [];
+
   const selectedKvDef = KV_RATIOS.find((r) => r.ratio === selectedRatio)!;
 
   async function handleGenerate() {
@@ -55,7 +68,8 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
           selectedRatio,
           selectedKvDef.name,
           ci,
-          refAnalysis || undefined
+          refAnalysis || undefined,
+          activeVersion.guideImages,
         );
       } else {
         const result = await generateRecraftKV(
@@ -107,6 +121,76 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
     };
     reader.readAsDataURL(file);
     e.target.value = "";
+  }
+
+  async function handleSvgBatchGenerate() {
+    if (!activeVersion) return;
+    setSvgBatchGenerating(true);
+    setError("");
+    addLog(`SVG용 KV 배치 생성 중... (${svgBatchCount}장, ${selectedRatio})`);
+    try {
+      const urls = await generateSvgReadyKvBatch(
+        activeVersion.guideline,
+        selectedRatio,
+        selectedKvDef.name,
+        activeVersion.guideImages,
+        refAnalysis || undefined,
+        svgBatchCount,
+      );
+      const batchId = `b${Date.now().toString(36)}`;
+      const now = Date.now();
+      const items: SvgCandidate[] = urls.map((imageUrl, i) => ({
+        id: `${batchId}-${i}`,
+        imageUrl,
+        ratio: selectedRatio,
+        createdAt: now,
+        batchId,
+      }));
+      addSvgCandidates(activeVersion.id, items);
+      addLog(`SVG용 KV ${urls.length}/${svgBatchCount}장 생성 완료`, "ok");
+    } catch (err: any) {
+      const msg = err?.message || "알 수 없는 오류";
+      setError(msg);
+      addLog(`SVG용 KV 배치 실패: ${msg}`, "err");
+    }
+    setSvgBatchGenerating(false);
+  }
+
+  async function handleVectorizeCandidate(candidate: SvgCandidate, provider: VectorizeProvider) {
+    if (!activeVersion) return;
+    setVectorizingIds((prev) => {
+      const next = new Set(prev);
+      next.add(candidate.id);
+      return next;
+    });
+    updateSvgCandidate(activeVersion.id, candidate.id, { svgError: undefined });
+    try {
+      const svgText = await vectorizeImage(candidate.imageUrl, provider);
+      const svgUrl = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgText)))}`;
+      updateSvgCandidate(activeVersion.id, candidate.id, { svgUrl, svgProvider: provider });
+      addLog(`SVG 변환 완료 (${provider})`, "ok");
+    } catch (err: any) {
+      const msg = err?.message || "벡터화 실패";
+      updateSvgCandidate(activeVersion.id, candidate.id, { svgError: msg });
+      addLog(`SVG 변환 실패: ${msg}`, "err");
+    } finally {
+      setVectorizingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(candidate.id);
+        return next;
+      });
+    }
+  }
+
+  function handleDownloadCandidateSvg(candidate: SvgCandidate) {
+    if (!candidate.svgUrl) return;
+    const name = `${activeVersion?.guideline?.event_summary?.name || "kv"}-svg-${candidate.id}.svg`;
+    const a = document.createElement("a");
+    a.href = candidate.svgUrl;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }
 
   function handleConfirm() {
@@ -421,6 +505,121 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
         </div>
       )}
 
+      {/* SVG용 배치 트랙 — 기존 Gemini/Recraft와 별개 레인 */}
+      {activeVersion && (
+        <details open className="rounded-xl border border-gray-800 bg-gray-950/50">
+          <summary className="cursor-pointer px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 hover:text-gray-300">
+            SVG용 배치 생성 — Nano Banana → 벡터화
+          </summary>
+          <div className="space-y-4 border-t border-gray-800 p-4">
+            <p className="text-[11px] leading-relaxed text-gray-500">
+              텍스트 없는 플랫 벡터 스타일로 Gemini가 배치 생성합니다. CI 로고는 주입하지 않고 가이드 이미지 4장만 레퍼런스로 사용 (래스터 노이즈 방지). 결과를 Arrow / Recraft로 벡터화해 SVG로 내려받습니다.
+            </p>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="text-[11px] text-gray-500">배치 장수</label>
+              <select
+                value={svgBatchCount}
+                onChange={(e) => setSvgBatchCount(Number(e.target.value))}
+                className="rounded-lg border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-300"
+              >
+                {[2, 3, 4, 6].map((n) => (
+                  <option key={n} value={n}>{n}장</option>
+                ))}
+              </select>
+
+              <button
+                onClick={handleSvgBatchGenerate}
+                disabled={svgBatchGenerating}
+                className="btn flex items-center gap-2 rounded-xl bg-gradient-to-t from-violet-600 to-violet-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-violet-500/20 disabled:opacity-50"
+              >
+                {svgBatchGenerating ? (
+                  <>
+                    <svg className="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    배치 생성 중...
+                  </>
+                ) : (
+                  <>배치 생성</>
+                )}
+              </button>
+
+              {svgCandidates.length > 0 && (
+                <span className="ml-auto text-[11px] text-gray-500">
+                  누적 {svgCandidates.length}장
+                </span>
+              )}
+            </div>
+
+            {svgCandidates.length > 0 && (
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+                {svgCandidates.map((c) => {
+                  const vectorizing = vectorizingIds.has(c.id);
+                  return (
+                    <div key={c.id} className="group relative overflow-hidden rounded-lg border border-gray-800 bg-gray-950">
+                      <img
+                        src={c.svgUrl || c.imageUrl}
+                        alt={c.id}
+                        className="aspect-square w-full object-contain"
+                      />
+                      {c.svgUrl && (
+                        <div className="absolute left-2 top-2 rounded bg-emerald-500/90 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-white">
+                          SVG · {c.svgProvider}
+                        </div>
+                      )}
+                      <button
+                        onClick={() => activeVersion && removeSvgCandidate(activeVersion.id, c.id)}
+                        title="삭제"
+                        className="absolute right-1.5 top-1.5 rounded bg-gray-900/70 px-1.5 py-0.5 text-[10px] text-gray-400 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
+                      >
+                        ×
+                      </button>
+                      <div className="space-y-1.5 border-t border-gray-800 p-2">
+                        <div className="flex gap-1">
+                          <select
+                            value={c.svgProvider ?? svgBatchProvider}
+                            onChange={(e) => {
+                              const prov = e.target.value as VectorizeProvider;
+                              if (!c.svgUrl) setSvgBatchProvider(prov);
+                              if (activeVersion) updateSvgCandidate(activeVersion.id, c.id, { svgProvider: prov });
+                            }}
+                            className="flex-1 rounded border border-gray-700 bg-gray-900 px-1.5 py-1 text-[10px] text-gray-400"
+                          >
+                            <option value="arrow">Arrow 1.1</option>
+                            <option value="arrow-max">Arrow Max</option>
+                            <option value="recraft">Recraft</option>
+                          </select>
+                          <button
+                            onClick={() => handleVectorizeCandidate(c, (c.svgProvider ?? svgBatchProvider) as VectorizeProvider)}
+                            disabled={vectorizing}
+                            className="btn rounded bg-violet-500/20 px-2 py-1 text-[10px] font-semibold text-violet-300 transition-colors hover:bg-violet-500/30 disabled:opacity-50"
+                          >
+                            {vectorizing ? "변환 중..." : c.svgUrl ? "재변환" : "벡터화"}
+                          </button>
+                        </div>
+                        {c.svgUrl && (
+                          <button
+                            onClick={() => handleDownloadCandidateSvg(c)}
+                            className="btn w-full rounded bg-emerald-500/15 px-2 py-1 text-[10px] font-semibold text-emerald-300 transition-colors hover:bg-emerald-500/25"
+                          >
+                            SVG 다운로드
+                          </button>
+                        )}
+                        {c.svgError && (
+                          <p className="text-[10px] leading-snug text-red-400">{c.svgError}</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </details>
+      )}
+
       {/* Gemini 입력 미리보기 (프롬프트 + 레퍼런스 이미지) */}
       {activeVersion && (() => {
         const { system, user } = buildMasterKvPrompt(
@@ -430,6 +629,9 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
           refAnalysis || undefined,
         );
         const ciSent = ciImages.slice(0, 3); // Gemini로 보내는 건 앞 3장만
+        const guideSent = Object.entries(activeVersion.guideImages ?? {})
+          .filter(([, url]) => !!url)
+          .slice(0, 4);
         return (
           <details open className="rounded-xl border border-gray-800 bg-gray-950/50">
             <summary className="cursor-pointer px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 hover:text-gray-300">
@@ -461,6 +663,26 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
                   </div>
                 ) : (
                   <p className="text-[11px] text-gray-600">CI 이미지 없음</p>
+                )}
+              </div>
+              <div>
+                <h4 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-400">
+                  가이드 이미지 (Gemini로 inline 전송 — {guideSent.length}/4장)
+                </h4>
+                {guideSent.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {guideSent.map(([id, url]) => (
+                      <img
+                        key={id}
+                        src={url}
+                        alt={id}
+                        title={id}
+                        className="h-20 w-20 rounded-lg border border-gray-800 object-cover"
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-gray-600">가이드 이미지 없음 — Step 2에서 먼저 생성하세요</p>
                 )}
               </div>
               <div>

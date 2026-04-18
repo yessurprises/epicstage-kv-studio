@@ -11,6 +11,7 @@ import type {
   NamedImageData,
   Production,
   ProductionPlanItem,
+  SvgCandidate,
   Version,
 } from "./types";
 
@@ -20,6 +21,7 @@ export type {
   MasterKv,
   Production,
   ProductionPlanItem,
+  SvgCandidate,
   Version,
 } from "./types";
 
@@ -65,6 +67,9 @@ interface StudioStore {
   setMasterKv: (verId: string, kv: MasterKv) => void;
   confirmMasterKv: (verId: string) => void;
   markVariationsStale: (verId: string) => void;
+  addSvgCandidates: (verId: string, items: SvgCandidate[]) => void;
+  updateSvgCandidate: (verId: string, candidateId: string, patch: Partial<SvgCandidate>) => void;
+  removeSvgCandidate: (verId: string, candidateId: string) => void;
 
   customItems: CatalogItem[];
   addCustomItem: (item: CatalogItem) => void;
@@ -173,6 +178,38 @@ export const useStore = create<StudioStore>((set) => ({
         productions: s.productions.map((p) => ({ ...p, stale: true })),
       };
     }),
+  addSvgCandidates: (verId, items) =>
+    set((s) => ({
+      versions: s.versions.map((v) =>
+        v.id === verId
+          ? { ...v, svgCandidates: [...(v.svgCandidates ?? []), ...items] }
+          : v,
+      ),
+    })),
+  updateSvgCandidate: (verId, candidateId, patch) =>
+    set((s) => ({
+      versions: s.versions.map((v) =>
+        v.id === verId
+          ? {
+              ...v,
+              svgCandidates: (v.svgCandidates ?? []).map((c) =>
+                c.id === candidateId ? { ...c, ...patch } : c,
+              ),
+            }
+          : v,
+      ),
+    })),
+  removeSvgCandidate: (verId, candidateId) =>
+    set((s) => ({
+      versions: s.versions.map((v) =>
+        v.id === verId
+          ? {
+              ...v,
+              svgCandidates: (v.svgCandidates ?? []).filter((c) => c.id !== candidateId),
+            }
+          : v,
+      ),
+    })),
 
   customItems: [],
   addCustomItem: (item) =>

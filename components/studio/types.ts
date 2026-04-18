@@ -71,6 +71,17 @@ export interface MasterKv {
   uploadedByUser?: boolean;
 }
 
+export interface SvgCandidate {
+  id: string;
+  imageUrl: string;
+  ratio: string;
+  createdAt: number;
+  batchId: string;
+  svgUrl?: string;
+  svgProvider?: "arrow" | "arrow-max" | "recraft";
+  svgError?: string;
+}
+
 export interface VersionPreview {
   colors: string[];
   mood: string[];
@@ -85,6 +96,7 @@ export interface Version {
   preview: VersionPreview;
   guideImages: Record<string, string>;
   masterKv?: MasterKv;
+  svgCandidates?: SvgCandidate[];
 }
 
 export interface ProductionPlanItem {

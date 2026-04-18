@@ -5,19 +5,18 @@ import { extractFirstImage, toInlineDataParts, type GeminiResponse } from "../ge
 import { PRINT_SPEC_INSTRUCTION, PRODUCTION_SYSTEM } from "../prompts";
 
 /**
- * Generate the master KV — the hero image all 54 production variants derive
- * from. Returns a `data:` URL.
+ * Build the user-facing prompt for the master KV. Pure function — exposed
+ * separately so the UI can preview exactly what will be sent to Gemini.
  */
-export async function generateMasterKV(
+export function buildMasterKvPrompt(
   guideline: Guideline,
   ratio: string,
   kvName: string,
-  ciImages?: ImageData[],
   refAnalysis?: string,
-): Promise<string> {
+): { system: string; user: string } {
   const designSystem = extractDesignSystemForProduction(guideline, "kv");
 
-  const userContent = `Professional event key visual (master KV). Production-ready.
+  const user = `Professional event key visual (master KV). Production-ready.
 Aspect ratio: ${ratio}.
 Type: ${kvName}
 
@@ -41,6 +40,22 @@ REQUIREMENTS:
 - Render ONLY the text listed above
 - Professional print/digital quality`;
 
+  return { system: PRODUCTION_SYSTEM, user };
+}
+
+/**
+ * Generate the master KV — the hero image all 54 production variants derive
+ * from. Returns a `data:` URL.
+ */
+export async function generateMasterKV(
+  guideline: Guideline,
+  ratio: string,
+  kvName: string,
+  ciImages?: ImageData[],
+  refAnalysis?: string,
+): Promise<string> {
+  const { system, user: userContent } = buildMasterKvPrompt(guideline, ratio, kvName, refAnalysis);
+
   const url = IMAGE_URL();
 
   if (isLocal()) {
@@ -49,7 +64,7 @@ REQUIREMENTS:
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         prompt: userContent,
-        system: PRODUCTION_SYSTEM,
+        system,
         ciImages: ciImages ?? [],
         guideImageUrls: [],
       }),
@@ -62,7 +77,7 @@ REQUIREMENTS:
 
   const parts = [
     ...toInlineDataParts(ciImages ?? [], 3),
-    { text: `${PRODUCTION_SYSTEM}\n\n---\n\n${userContent}` },
+    { text: `${system}\n\n---\n\n${userContent}` },
   ];
   const resp = await fetch(url, {
     method: "POST",

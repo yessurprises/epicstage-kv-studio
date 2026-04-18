@@ -46,7 +46,7 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
   // SVG 배치 트랙
   const [svgBatchGenerating, setSvgBatchGenerating] = useState(false);
   const [svgBatchCount, setSvgBatchCount] = useState(2);
-  const [svgBatchProvider, setSvgBatchProvider] = useState<VectorizeProvider>("arrow");
+  const [svgBatchProvider, setSvgBatchProvider] = useState<VectorizeProvider>("recraft");
   const [vectorizingIds, setVectorizingIds] = useState<Set<string>>(new Set());
   const svgCandidates = activeVersion?.svgCandidates ?? [];
 

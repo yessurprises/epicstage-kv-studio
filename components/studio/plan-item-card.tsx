@@ -27,7 +27,9 @@ export default function PlanItemCard({ item }: { item: ProductionPlanItem }) {
   const [layoutNote, setLayoutNote] = useState(item.layout_note);
   const [imagePrompt, setImagePrompt] = useState(item.image_prompt);
   const [ratio, setRatio] = useState(item.ratio);
-  const [imageSize, setImageSize] = useState<"" | "1K" | "2K">(item.image_size ?? "");
+  const [imageSize, setImageSize] = useState<"" | "512" | "1K" | "2K" | "4K">(
+    item.image_size ?? "",
+  );
   const [temperature, setTemperature] = useState<number>(item.temperature ?? 1);
   const [seed, setSeed] = useState<string>(
     item.seed !== undefined ? String(item.seed) : "",
@@ -162,12 +164,16 @@ export default function PlanItemCard({ item }: { item: ProductionPlanItem }) {
             <Field label="해상도 (imageSize)">
               <select
                 value={imageSize}
-                onChange={(e) => setImageSize(e.target.value as "" | "1K" | "2K")}
+                onChange={(e) =>
+                  setImageSize(e.target.value as "" | "512" | "1K" | "2K" | "4K")
+                }
                 className="w-full rounded bg-gray-950 px-2 py-1.5 text-gray-200 outline-none ring-1 ring-gray-800 focus:ring-indigo-500"
               >
-                <option value="">기본 (미지정)</option>
+                <option value="">기본 (1K)</option>
+                <option value="512">512</option>
                 <option value="1K">1K</option>
                 <option value="2K">2K</option>
+                <option value="4K">4K</option>
               </select>
             </Field>
 

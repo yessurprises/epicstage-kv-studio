@@ -107,7 +107,7 @@ export interface ProductionPlanItem {
   subtext: string | null;
   layout_note: string;
   image_prompt: string;
-  image_size?: "1K" | "2K";
+  image_size?: "512" | "1K" | "2K" | "4K";
   temperature?: number;
   seed?: number;
   overridden?: boolean;
@@ -131,7 +131,7 @@ export interface Production {
   imagePrompt?: string;
   renderInstruction?: string;
   fullPrompt?: string;
-  imageSize?: "1K" | "2K";
+  imageSize?: "512" | "1K" | "2K" | "4K";
   temperature?: number;
   seed?: number;
   overridden?: boolean;

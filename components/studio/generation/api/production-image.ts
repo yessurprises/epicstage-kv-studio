@@ -18,7 +18,7 @@ export interface ProductionInput {
   layoutNote?: string;
   imagePrompt?: string;
   renderInstruction?: string;
-  imageSize?: "1K" | "2K";
+  imageSize?: "512" | "1K" | "2K" | "4K";
   temperature?: number;
   seed?: number;
   overridden?: boolean;

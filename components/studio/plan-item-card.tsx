@@ -73,7 +73,7 @@ export default function PlanItemCard({ item }: { item: ProductionPlanItem }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left transition hover:bg-gray-900/60"
+        className="group flex w-full items-center gap-2 px-4 py-3 text-left transition hover:bg-gray-900/60"
       >
         <span className="rounded-full bg-indigo-500/10 px-2 py-0.5 font-medium text-indigo-400">
           #{item.num}
@@ -85,7 +85,17 @@ export default function PlanItemCard({ item }: { item: ProductionPlanItem }) {
             custom
           </span>
         )}
-        <span className="ml-auto text-gray-600">{open ? "▾" : "▸"}</span>
+        <span className="ml-auto flex items-center gap-1 rounded border border-gray-700 bg-gray-800/50 px-2 py-0.5 text-[11px] text-gray-300 group-hover:border-indigo-500 group-hover:text-indigo-300">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            className="h-3 w-3"
+          >
+            <path d="M17.414 2.586a2 2 0 0 0-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 0 0 0-2.828ZM2 17a1 1 0 0 0 1 1h14a1 1 0 1 0 0-2H3a1 1 0 0 0-1 1Z" />
+          </svg>
+          {open ? "닫기 ▾" : "편집 ▸"}
+        </span>
       </button>
 
       {!open && (item.headline || item.subtext || item.layout_note) && (

@@ -303,9 +303,14 @@ export default function ProductionGrid() {
 
       {ungeneratedPlan.length > 0 && (
         <div className="rounded-xl border border-gray-800 bg-gray-950/50 p-4">
-          <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
-            제작 계획 ({ungeneratedPlan.length}종 대기)
-          </h4>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+              제작 계획 ({ungeneratedPlan.length}종 대기)
+            </h4>
+            <span className="text-[11px] text-gray-500">
+              카드를 클릭하면 프롬프트 · 비율 · 해상도 · temperature · seed를 개별로 편집할 수 있습니다
+            </span>
+          </div>
           <div className="space-y-2">
             {ungeneratedPlan.map((item) => (
               <PlanItemCard key={item.num} item={item} />

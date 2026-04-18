@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useStore, type MasterKv } from "./use-store";
-import { generateMasterKV, generateRecraftKV } from "./guideline-generator";
+import { generateMasterKV, generateRecraftKV, buildMasterKvPrompt } from "./guideline-generator";
 import { downloadNoTextPng, downloadTransparentPng, downloadAsSvg, downloadNoTextSvg, downloadTransparentSvg } from "./export-utils";
 import type { VectorizeProvider } from "./vectorize-service";
 import { KV_RATIOS } from "./constants";
@@ -16,7 +16,7 @@ const RATIO_LABELS = {
 export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
   const {
     versions, selectedVersionId,
-    ciImages, refAnalysis,
+    ciImages, refAnalysis, refFiles,
     setMasterKv, confirmMasterKv, markVariationsStale,
     addLog,
   } = useStore();
@@ -420,6 +420,79 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
           </div>
         </div>
       )}
+
+      {/* Gemini 입력 미리보기 (프롬프트 + 레퍼런스 이미지) */}
+      {activeVersion && (() => {
+        const { system, user } = buildMasterKvPrompt(
+          activeVersion.guideline,
+          selectedRatio,
+          selectedKvDef.name,
+          refAnalysis || undefined,
+        );
+        const ciSent = ciImages.slice(0, 3); // Gemini로 보내는 건 앞 3장만
+        return (
+          <details open className="rounded-xl border border-gray-800 bg-gray-950/50">
+            <summary className="cursor-pointer px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 hover:text-gray-300">
+              Gemini 입력 미리보기 — 프롬프트 + 레퍼런스
+            </summary>
+            <div className="space-y-4 border-t border-gray-800 p-4">
+              <div>
+                <h4 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-400">System Instruction</h4>
+                <pre className="whitespace-pre-wrap rounded-lg border border-gray-800 bg-gray-950 p-3 text-[11px] leading-relaxed text-gray-300">{system}</pre>
+              </div>
+              <div>
+                <h4 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-400">User Prompt</h4>
+                <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg border border-gray-800 bg-gray-950 p-3 text-[11px] leading-relaxed text-gray-300">{user}</pre>
+              </div>
+              <div>
+                <h4 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-400">
+                  CI 이미지 (Gemini로 inline 전송 — {ciSent.length}/{ciImages.length}장)
+                </h4>
+                {ciSent.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {ciSent.map((img, i) => (
+                      <img
+                        key={i}
+                        src={`data:${img.mime};base64,${img.base64}`}
+                        alt={`CI ${i + 1}`}
+                        className="h-20 w-20 rounded-lg border border-gray-800 object-cover"
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-gray-600">CI 이미지 없음</p>
+                )}
+              </div>
+              <div>
+                <h4 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-400">
+                  레퍼런스 원본 ({refFiles.length}장 — JSON 분석 결과만 프롬프트에 포함, 이미지 자체는 미전송)
+                </h4>
+                {refFiles.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {refFiles.map((f) => (
+                      <img
+                        key={f.id}
+                        src={`data:${f.mime};base64,${f.base64}`}
+                        alt={f.name}
+                        title={f.name}
+                        className="h-20 w-20 rounded-lg border border-gray-800 object-cover"
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-gray-600">레퍼런스 이미지 없음</p>
+                )}
+              </div>
+              {refAnalysis && (
+                <div>
+                  <h4 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-400">레퍼런스 분석 JSON (User Prompt에 포함됨)</h4>
+                  <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-3 text-[10px] leading-relaxed text-gray-400">{refAnalysis}</pre>
+                </div>
+              )}
+            </div>
+          </details>
+        );
+      })()}
     </div>
   );
 }

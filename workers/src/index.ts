@@ -6,6 +6,7 @@ import { generateRoutes } from "./routes/generate";
 import { imageRoutes } from "./routes/images";
 import { projectRoutes } from "./routes/projects";
 import { searchRoutes } from "./routes/search";
+import { upscaleRoutes } from "./routes/upscale";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -25,6 +26,7 @@ app.route("/", generateRoutes);
 app.route("/", projectRoutes);
 app.route("/", searchRoutes);
 app.route("/", imageRoutes);
+app.route("/", upscaleRoutes);
 
 app.onError((err, c) => {
   if (err instanceof HTTPException) {

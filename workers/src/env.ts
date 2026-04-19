@@ -8,6 +8,7 @@ export interface Env {
   EPIC_SEARCH_API_KEY: string;
   QUIVERAI_API_KEY: string;
   RECRAFT_API_TOKEN: string;
+  TOPAZ_API_KEY: string;
 }
 
 // Routed through a Supabase Edge Function pinned to Seoul (ap-northeast-2)

@@ -1,7 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { generateNoTextVersion, generateProductionImage } from "./generation";
+import { useMemo, useState } from "react";
+import {
+  generateNoTextVersion,
+  generateProductionImage,
+  suggestDimensions,
+  upscaleToExactSize,
+  type TopazModel,
+} from "./generation";
 import { downloadAsSvg } from "./export-utils";
 import type { Production } from "./types";
 import { useStore } from "./use-store";
@@ -19,6 +25,10 @@ export default function ProductionCard({ prod, onDelete }: Props) {
   );
   const [svgProvider, setSvgProvider] = useState<VectorizeProvider>("arrow");
   const [vectorizing, setVectorizing] = useState(false);
+  const suggested = useMemo(() => suggestDimensions(prod.ratio, "2K"), [prod.ratio]);
+  const [targetW, setTargetW] = useState<string>(String(suggested.w));
+  const [targetH, setTargetH] = useState<string>(String(suggested.h));
+  const [topazModel, setTopazModel] = useState<TopazModel>("Standard V2");
 
   async function handleRegenerate() {
     if (!activeVersion) return;
@@ -54,6 +64,28 @@ export default function ProductionCard({ prod, onDelete }: Props) {
         noTextStatus: "error",
         noTextError: err instanceof Error ? err.message : String(err),
       });
+    }
+  }
+
+  async function handleUpscale() {
+    if (!prod.imageUrl) return;
+    const w = Number(targetW);
+    const h = Number(targetH);
+    if (!Number.isFinite(w) || !Number.isFinite(h) || w < 1 || h < 1) {
+      updateProduction(prod.id, {
+        upscaleStatus: "error",
+      });
+      return;
+    }
+    updateProduction(prod.id, { upscaleStatus: "pending", upscaleUrl: undefined });
+    try {
+      const url = await upscaleToExactSize(prod.imageUrl, w, h, { model: topazModel });
+      updateProduction(prod.id, { upscaleStatus: "done", upscaleUrl: url });
+    } catch (err) {
+      updateProduction(prod.id, {
+        upscaleStatus: "error",
+      });
+      console.error("upscale error:", err);
     }
   }
 
@@ -182,6 +214,70 @@ export default function ProductionCard({ prod, onDelete }: Props) {
                 <img src={prod.noTextUrl} alt={`${prod.name} 대지`} className="w-full" />
               </div>
             )}
+            <div className="space-y-2 rounded-lg border border-gray-800 bg-gray-950/50 px-3 py-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-gray-500">업스케일 (Topaz)</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={targetW}
+                  onChange={(e) => setTargetW(e.target.value)}
+                  aria-label="목표 폭(px)"
+                  className="w-20 rounded border border-gray-800 bg-gray-950 px-2 py-1 text-right text-[10px] text-gray-300"
+                />
+                <span className="text-[10px] text-gray-600">×</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={targetH}
+                  onChange={(e) => setTargetH(e.target.value)}
+                  aria-label="목표 높이(px)"
+                  className="w-20 rounded border border-gray-800 bg-gray-950 px-2 py-1 text-right text-[10px] text-gray-300"
+                />
+                <span className="text-[10px] text-gray-600">px</span>
+                <button
+                  onClick={handleUpscale}
+                  disabled={prod.upscaleStatus === "pending"}
+                  className="ml-auto rounded bg-gray-800 px-3 py-1 text-[10px] text-gray-300 hover:bg-gray-700 disabled:opacity-50"
+                >
+                  {prod.upscaleStatus === "pending" ? "업스케일 중..." : "업스케일"}
+                </button>
+                {prod.upscaleStatus === "done" && (
+                  <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-400">
+                    완료
+                  </span>
+                )}
+                {prod.upscaleStatus === "error" && (
+                  <span className="text-[10px] text-red-400" role="alert">
+                    실패
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-gray-500">모델</span>
+                <select
+                  value={topazModel}
+                  onChange={(e) => setTopazModel(e.target.value as TopazModel)}
+                  aria-label="Topaz Gigapixel 모델"
+                  className="rounded border border-gray-800 bg-gray-950 px-2 py-1 text-[10px] text-gray-300"
+                >
+                  <option value="Standard V2">Standard V2 (범용)</option>
+                  <option value="High Fidelity V2">High Fidelity V2 (디테일 보존)</option>
+                  <option value="Low Resolution V2">Low Resolution V2 (저해상 복원)</option>
+                  <option value="CGI">CGI (일러스트/아트)</option>
+                  <option value="Text Refine">Text Refine (타이포/그래픽)</option>
+                </select>
+              </div>
+              {prod.upscaleStatus === "done" && prod.upscaleUrl && (
+                <a
+                  href={prod.upscaleUrl}
+                  download={`${prod.name}-${targetW}x${targetH}.png`}
+                  className="block text-right text-[10px] text-indigo-400 hover:underline"
+                >
+                  {targetW} × {targetH} px 다운로드
+                </a>
+              )}
+            </div>
             <div className="flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-950/50 px-3 py-2">
               <select
                 value={svgProvider}

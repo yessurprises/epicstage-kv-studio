@@ -12,6 +12,11 @@ export { generateRecraftKV, type RecraftKvResult } from "./api/recraft-kv";
 export { generateProductionPlan } from "./api/production-plan";
 export { generateProductionImage, type ProductionInput } from "./api/production-image";
 export { generateNoTextVersion } from "./api/notext";
+export {
+  upscaleToExactSize,
+  suggestDimensions,
+  type TopazModel,
+} from "./api/upscale";
 export { createVersion } from "./version";
 
 export { parseJSON, repairJSON } from "./parse";

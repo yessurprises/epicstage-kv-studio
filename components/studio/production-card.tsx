@@ -8,6 +8,7 @@ import {
   upscaleToExactSize,
   type TopazModel,
 } from "./generation";
+import CropModal from "./crop-modal";
 import { downloadAsSvg } from "./export-utils";
 import type { Production } from "./types";
 import { useStore } from "./use-store";
@@ -29,6 +30,7 @@ export default function ProductionCard({ prod, onDelete }: Props) {
   const [targetW, setTargetW] = useState<string>(String(suggested.w));
   const [targetH, setTargetH] = useState<string>(String(suggested.h));
   const [topazModel, setTopazModel] = useState<TopazModel>("Standard V2");
+  const [cropOpen, setCropOpen] = useState(false);
 
   async function handleRegenerate() {
     if (!activeVersion) return;
@@ -77,16 +79,33 @@ export default function ProductionCard({ prod, onDelete }: Props) {
       });
       return;
     }
-    updateProduction(prod.id, { upscaleStatus: "pending", upscaleUrl: undefined });
+    updateProduction(prod.id, {
+      upscaleStatus: "pending",
+      upscaleUrl: undefined,
+      upscaleRawUrl: undefined,
+      upscaleTargetW: w,
+      upscaleTargetH: h,
+    });
     try {
-      const url = await upscaleToExactSize(prod.imageUrl, w, h, { model: topazModel });
-      updateProduction(prod.id, { upscaleStatus: "done", upscaleUrl: url });
+      const { rawUrl, finalUrl } = await upscaleToExactSize(prod.imageUrl, w, h, {
+        model: topazModel,
+      });
+      updateProduction(prod.id, {
+        upscaleStatus: "done",
+        upscaleUrl: finalUrl,
+        upscaleRawUrl: rawUrl,
+      });
     } catch (err) {
       updateProduction(prod.id, {
         upscaleStatus: "error",
       });
       console.error("upscale error:", err);
     }
+  }
+
+  function handleCropApply(croppedDataUrl: string) {
+    updateProduction(prod.id, { upscaleUrl: croppedDataUrl });
+    setCropOpen(false);
   }
 
   async function handleVectorize() {
@@ -269,13 +288,23 @@ export default function ProductionCard({ prod, onDelete }: Props) {
                 </select>
               </div>
               {prod.upscaleStatus === "done" && prod.upscaleUrl && (
-                <a
-                  href={prod.upscaleUrl}
-                  download={`${prod.name}-${targetW}x${targetH}.png`}
-                  className="block text-right text-[10px] text-indigo-400 hover:underline"
-                >
-                  {targetW} × {targetH} px 다운로드
-                </a>
+                <div className="flex items-center justify-end gap-3">
+                  {prod.upscaleRawUrl && (
+                    <button
+                      onClick={() => setCropOpen(true)}
+                      className="text-[10px] text-indigo-400 hover:underline"
+                    >
+                      크롭 조정
+                    </button>
+                  )}
+                  <a
+                    href={prod.upscaleUrl}
+                    download={`${prod.name}-${prod.upscaleTargetW ?? targetW}x${prod.upscaleTargetH ?? targetH}.png`}
+                    className="text-[10px] text-indigo-400 hover:underline"
+                  >
+                    {prod.upscaleTargetW ?? targetW} × {prod.upscaleTargetH ?? targetH} px 다운로드
+                  </a>
+                </div>
               )}
             </div>
             <div className="flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-950/50 px-3 py-2">
@@ -300,6 +329,17 @@ export default function ProductionCard({ prod, onDelete }: Props) {
           </div>
         )}
       </div>
+      {prod.upscaleRawUrl && (
+        <CropModal
+          open={cropOpen}
+          imageUrl={prod.upscaleRawUrl}
+          targetW={prod.upscaleTargetW ?? (Number(targetW) || 1024)}
+          targetH={prod.upscaleTargetH ?? (Number(targetH) || 1024)}
+          title={`${prod.name} 크롭 — ${prod.upscaleTargetW ?? targetW} × ${prod.upscaleTargetH ?? targetH} px`}
+          onApply={handleCropApply}
+          onClose={() => setCropOpen(false)}
+        />
+      )}
     </div>
   );
 }

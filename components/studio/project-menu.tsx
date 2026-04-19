@@ -70,6 +70,8 @@ function externalizeAssets(state: any): { manifest: any; assets: Array<{ path: s
       if (p.imageUrl) np.imageUrl = fromDataUrl(p.imageUrl, `prod_${p.id}_img`);
       if (p.noTextUrl) np.noTextUrl = fromDataUrl(p.noTextUrl, `prod_${p.id}_notext`);
       if (p.upscaleUrl) np.upscaleUrl = fromDataUrl(p.upscaleUrl, `prod_${p.id}_up`);
+      if (p.upscaleRawUrl)
+        np.upscaleRawUrl = fromDataUrl(p.upscaleRawUrl, `prod_${p.id}_up_raw`);
       return np;
     });
   }
@@ -122,6 +124,7 @@ async function internalizeAssets(manifest: any, zip: any): Promise<any> {
       if (p.imageUrl) np.imageUrl = await toDataUrl(p.imageUrl);
       if (p.noTextUrl) np.noTextUrl = await toDataUrl(p.noTextUrl);
       if (p.upscaleUrl) np.upscaleUrl = await toDataUrl(p.upscaleUrl);
+      if (p.upscaleRawUrl) np.upscaleRawUrl = await toDataUrl(p.upscaleRawUrl);
       return np;
     }));
   }

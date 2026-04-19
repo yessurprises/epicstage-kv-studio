@@ -15,21 +15,24 @@ export interface UpscaleOptions {
   fixCompression?: number;
 }
 
+export interface UpscaleResult {
+  rawUrl: string; // Topaz 원본 결과 (리사이즈 전)
+  finalUrl: string; // 목표 W×H로 맞춘 결과 (기본: 비율 유지 contain 후 정확한 W×H canvas)
+}
+
 /**
- * Upscale via Topaz Gigapixel, then resize to exact W×H in the browser.
+ * Upscale via Topaz Gigapixel, then produce a pixel-exact W×H preview.
  *
- * Topaz accepts `output_height` natively but does not accept exact width +
- * height together — width is always derived from the aspect ratio. We pass
- * `targetHeight` as a hint so Topaz upscales close to the target, then
- * canvas-resize to the exact W×H (covers aspect-ratio drift and gives us
- * pixel-exact output regardless of the source).
+ * Returns both the raw Topaz output (preserved so the user can re-crop later
+ * without spending more credits) and a default resized version suited for
+ * immediate download. Crop-to-exact is a separate flow triggered from the UI.
  */
 export async function upscaleToExactSize(
   imageDataUrl: string,
   targetW: number,
   targetH: number,
   opts?: UpscaleOptions,
-): Promise<string> {
+): Promise<UpscaleResult> {
   if (!Number.isFinite(targetW) || !Number.isFinite(targetH) || targetW < 1 || targetH < 1) {
     throw new Error("유효하지 않은 목표 크기");
   }
@@ -59,7 +62,9 @@ export async function upscaleToExactSize(
     throw new Error(data.error ?? "업스케일 결과 없음");
   }
 
-  return resizeToExact(data.imageUrl, targetW, targetH);
+  const rawUrl = data.imageUrl;
+  const finalUrl = await resizeToExact(rawUrl, targetW, targetH);
+  return { rawUrl, finalUrl };
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {

@@ -124,5 +124,7 @@ export function dataUrlToBlob(dataUrl: string): Blob {
   const [meta, data] = dataUrl.split(",");
   const mimeMatch = /data:([^;]+)/i.exec(meta);
   const mime = mimeMatch ? mimeMatch[1] : "application/octet-stream";
-  return new Blob([base64ToBytes(data)], { type: mime });
+  // BlobPart typing varies across TS lib versions; cast to Uint8Array<ArrayBuffer>.
+  const bytes = base64ToBytes(data);
+  return new Blob([bytes as unknown as BlobPart], { type: mime });
 }

@@ -144,6 +144,7 @@ export interface Production {
   upscaleRawUrl?: string; // Topaz 원본 결과 — 재크롭 시 재업스케일 없이 재사용
   upscaleTargetW?: number;
   upscaleTargetH?: number;
+  upscaleError?: string;
 }
 
 export interface LogEntry {

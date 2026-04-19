@@ -85,6 +85,7 @@ export default function ProductionCard({ prod, onDelete }: Props) {
       upscaleRawUrl: undefined,
       upscaleTargetW: w,
       upscaleTargetH: h,
+      upscaleError: undefined,
     });
     try {
       const { rawUrl, finalUrl } = await upscaleToExactSize(prod.imageUrl, w, h, {
@@ -96,8 +97,10 @@ export default function ProductionCard({ prod, onDelete }: Props) {
         upscaleRawUrl: rawUrl,
       });
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       updateProduction(prod.id, {
         upscaleStatus: "error",
+        upscaleError: msg,
       });
       console.error("upscale error:", err);
     }
@@ -272,6 +275,14 @@ export default function ProductionCard({ prod, onDelete }: Props) {
                   </span>
                 )}
               </div>
+              {prod.upscaleStatus === "error" && prod.upscaleError && (
+                <div
+                  className="rounded border border-red-500/20 bg-red-500/5 px-2 py-1 text-[10px] text-red-300"
+                  role="alert"
+                >
+                  {prod.upscaleError}
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <span className="text-[10px] text-gray-500">모델</span>
                 <select

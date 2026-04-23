@@ -116,6 +116,7 @@ ${PRINT_SPEC_INSTRUCTION}${prod.renderInstruction ? "\n" + prod.renderInstructio
 REQUIREMENTS:
 - Render ONLY the text listed in TEXTS TO RENDER — nothing else as text
 - Text must be legible with proper hierarchy
+- NO LOGOS, brand marks, emblems, wordmarks, or monograms of any kind. Logos are applied manually in post-production — the artwork must be completely logo-free. CI reference images are for palette and visual style only; do not reproduce the logo itself.
 - Professional print/digital quality
 - No placeholder text
 - Match the design system and master KV precisely`;
@@ -139,7 +140,9 @@ REQUIREMENTS:
     const ciSlice = (ciImages ?? []).slice(0, 2);
     refs.push(...ciSlice);
     ciSlice.forEach(() =>
-      refRoles.push("Brand CI — logo and primary colors only"),
+      refRoles.push(
+        "Brand CI — reference ONLY for color palette and visual style. DO NOT draw, trace, or recreate the logo in the output. Artwork must be logo-free.",
+      ),
     );
     const texts: Array<{ label: string; value: string; hint?: string }> = [];
     if (prod.headline) texts.push({ label: "HEADLINE", value: prod.headline });

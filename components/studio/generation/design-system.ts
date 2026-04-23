@@ -126,6 +126,5 @@ Colors — ${colorLine}
 Typography — Headline: ${t.headline?.font} ${t.headline?.size_range}, Sub: ${t.subheading?.font}, Body: ${t.body?.font}
 Style: ${m.style}${m.elements?.length ? `. Elements: ${m.elements.join(", ")}` : ""}${m.texture ? `. Texture: ${m.texture}` : ""}${m.icon_style ? `. Icons: ${m.icon_style}` : ""}
 Mood: ${mood.tone}${mood.keywords?.length ? ` (${mood.keywords.join(", ")})` : ""}
-${layoutGuide ? `Layout: ${layoutGuide}` : ""}
-${g.logo_usage ? `Logo: placement ${g.logo_usage.primary_placement || "auto"}, clear-space ${g.logo_usage.clear_space || "auto"}` : ""}`;
+${layoutGuide ? `Layout: ${layoutGuide}` : ""}`;
 }

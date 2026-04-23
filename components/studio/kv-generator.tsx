@@ -6,6 +6,7 @@ import {
   generateMasterKV,
   generateRecraftKV,
   buildMasterKvPrompt,
+  buildMasterKvOpenAiPrompt,
   generateSvgReadyKvBatch,
 } from "./guideline-generator";
 import { downloadNoTextPng, downloadTransparentPng, downloadAsSvg, downloadNoTextSvg, downloadTransparentSvg } from "./export-utils";
@@ -45,6 +46,10 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
   const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // 프롬프트 수기 편집 — null이면 자동 빌드된 프롬프트 사용
+  const [editedPrompt, setEditedPrompt] = useState<string | null>(null);
+  const [editedSystem, setEditedSystem] = useState<string | null>(null);
+
   // SVG 배치 트랙
   const [svgBatchGenerating, setSvgBatchGenerating] = useState(false);
   const [svgBatchCount, setSvgBatchCount] = useState(2);
@@ -54,12 +59,13 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
 
   const selectedKvDef = KV_RATIOS.find((r) => r.ratio === selectedRatio)!;
 
-  async function handleGenerate() {
+  async function handleGenerate(override?: { system?: string; user: string }) {
     if (!activeVersion) return;
     setGenerating(true);
     setError("");
     const engineLabel = engine === "gemini" ? "Gemini" : engine === "recraft_vector" ? "Recraft Vector" : "Recraft";
-    addLog(`마스터 KV 생성 중... (${selectedRatio}, ${engineLabel})`);
+    const modeLabel = override ? " — 수정된 프롬프트" : "";
+    addLog(`마스터 KV 생성 중... (${selectedRatio}, ${engineLabel}${modeLabel})`);
     try {
       const ci = ciImages.map((img) => ({ mime: img.mime, base64: img.base64 }));
       let imageUrl: string;
@@ -75,6 +81,7 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
           {
             provider: activeVersion.provider ?? "gemini",
             resolution: masterKvResolution,
+            overridePrompt: override,
           },
         );
       } else {
@@ -346,7 +353,7 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
       {/* 액션 버튼 */}
       <div className="flex flex-wrap gap-3">
         <button
-          onClick={handleGenerate}
+          onClick={() => handleGenerate()}
           disabled={generating}
           className="btn flex items-center gap-2 rounded-xl bg-gradient-to-t from-indigo-600 to-indigo-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/20 disabled:opacity-50"
         >
@@ -669,35 +676,90 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
         </details>
       )}
 
-      {/* Gemini 입력 미리보기 (프롬프트 + 레퍼런스 이미지) */}
+      {/* 입력 미리보기 (프롬프트 + 레퍼런스 이미지) — provider별로 프롬프트 다름 */}
       {activeVersion && (() => {
-        const { system, user } = buildMasterKvPrompt(
-          activeVersion.guideline,
-          selectedRatio,
-          selectedKvDef.name,
-          refAnalysis || undefined,
-        );
-        const ciSent = ciImages.slice(0, 3); // Gemini로 보내는 건 앞 3장만
+        const provider = activeVersion.provider ?? "gemini";
+        const ciSent = ciImages.slice(0, 3);
         const guideSent = Object.entries(activeVersion.guideImages ?? {})
           .filter(([, url]) => !!url)
           .slice(0, 4);
+        const { system, user } =
+          provider === "openai"
+            ? buildMasterKvOpenAiPrompt(
+                activeVersion.guideline,
+                selectedRatio,
+                selectedKvDef.name,
+                refAnalysis || undefined,
+                guideSent.length,
+                ciSent.length,
+              )
+            : buildMasterKvPrompt(
+                activeVersion.guideline,
+                selectedRatio,
+                selectedKvDef.name,
+                refAnalysis || undefined,
+              );
+        const previewTitle =
+          provider === "openai"
+            ? "GPT Image 2 입력 미리보기 — 프롬프트 + 레퍼런스"
+            : "Gemini 입력 미리보기 — 프롬프트 + 레퍼런스";
+        const currentUser = editedPrompt ?? user;
+        const currentSystem = editedSystem ?? system;
+        const isEdited = editedPrompt !== null || editedSystem !== null;
+        const canRegenerate =
+          engine === "gemini" && !generating && isEdited;
         return (
           <details open className="rounded-xl border border-gray-800 bg-gray-950/50">
             <summary className="cursor-pointer px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 hover:text-gray-300">
-              Gemini 입력 미리보기 — 프롬프트 + 레퍼런스
+              {previewTitle}
+              {isEdited && (
+                <span className="ml-2 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400 ring-1 ring-amber-500/30">
+                  편집됨
+                </span>
+              )}
             </summary>
             <div className="space-y-4 border-t border-gray-800 p-4">
               <div>
-                <h4 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-400">System Instruction</h4>
-                <pre className="whitespace-pre-wrap rounded-lg border border-gray-800 bg-gray-950 p-3 text-[11px] leading-relaxed text-gray-300">{system}</pre>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <h4 className="text-[10px] font-semibold uppercase tracking-wider text-indigo-400">System Instruction</h4>
+                  {editedSystem !== null && (
+                    <button
+                      onClick={() => setEditedSystem(null)}
+                      className="text-[10px] text-gray-500 hover:text-indigo-400"
+                    >
+                      초기화
+                    </button>
+                  )}
+                </div>
+                <textarea
+                  value={currentSystem}
+                  onChange={(e) => setEditedSystem(e.target.value)}
+                  rows={3}
+                  className="w-full resize-y rounded-lg border border-gray-800 bg-gray-950 p-3 font-mono text-[11px] leading-relaxed text-gray-300 focus:border-indigo-500 focus:outline-none"
+                />
               </div>
               <div>
-                <h4 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-400">User Prompt</h4>
-                <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg border border-gray-800 bg-gray-950 p-3 text-[11px] leading-relaxed text-gray-300">{user}</pre>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <h4 className="text-[10px] font-semibold uppercase tracking-wider text-indigo-400">User Prompt</h4>
+                  {editedPrompt !== null && (
+                    <button
+                      onClick={() => setEditedPrompt(null)}
+                      className="text-[10px] text-gray-500 hover:text-indigo-400"
+                    >
+                      초기화
+                    </button>
+                  )}
+                </div>
+                <textarea
+                  value={currentUser}
+                  onChange={(e) => setEditedPrompt(e.target.value)}
+                  rows={18}
+                  className="w-full resize-y rounded-lg border border-gray-800 bg-gray-950 p-3 font-mono text-[11px] leading-relaxed text-gray-300 focus:border-indigo-500 focus:outline-none"
+                />
               </div>
               <div>
                 <h4 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-400">
-                  CI 이미지 (Gemini로 inline 전송 — {ciSent.length}/{ciImages.length}장)
+                  CI 이미지 ({provider === "openai" ? "OpenAI로 첨부" : "Gemini로 inline 전송"} — {ciSent.length}/{ciImages.length}장)
                 </h4>
                 {ciSent.length > 0 ? (
                   <div className="flex flex-wrap gap-2">
@@ -716,7 +778,7 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
               </div>
               <div>
                 <h4 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-400">
-                  가이드 이미지 (Gemini로 inline 전송 — {guideSent.length}/4장)
+                  가이드 이미지 ({provider === "openai" ? "OpenAI로 첨부" : "Gemini로 inline 전송"} — {guideSent.length}/4장)
                 </h4>
                 {guideSent.length > 0 ? (
                   <div className="flex flex-wrap gap-2">
@@ -760,6 +822,27 @@ export default function KvGenerator({ onConfirm }: { onConfirm: () => void }) {
                   <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-3 text-[10px] leading-relaxed text-gray-400">{refAnalysis}</pre>
                 </div>
               )}
+              <div className="flex items-center gap-3 border-t border-gray-800 pt-4">
+                <button
+                  onClick={() =>
+                    handleGenerate({
+                      system: currentSystem,
+                      user: currentUser,
+                    })
+                  }
+                  disabled={!canRegenerate}
+                  className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-gray-800 disabled:text-gray-600"
+                >
+                  {generating ? "생성 중…" : "이 프롬프트로 재생성"}
+                </button>
+                <span className="text-[11px] text-gray-500">
+                  {engine !== "gemini"
+                    ? "Recraft 엔진에서는 프롬프트 수정 재생성 미지원"
+                    : isEdited
+                      ? "편집된 프롬프트로 생성합니다. 레퍼런스(CI·가이드)는 KV 재생성과 동일하게 첨부됩니다."
+                      : "프롬프트를 수정하면 이 버튼이 활성화됩니다."}
+                </span>
+              </div>
             </div>
           </details>
         );

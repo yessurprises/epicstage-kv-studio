@@ -2,7 +2,11 @@ export { analyzeRefs } from "./api/analyze-refs";
 export { refineStyleOverride } from "./api/refine-style";
 export { generateGuideline } from "./api/guideline";
 export { generateGuideImage } from "./api/guide-image";
-export { generateMasterKV, buildMasterKvPrompt } from "./api/master-kv";
+export {
+  generateMasterKV,
+  buildMasterKvPrompt,
+  buildMasterKvOpenAiPrompt,
+} from "./api/master-kv";
 export {
   generateSvgReadyKV,
   generateSvgReadyKvBatch,

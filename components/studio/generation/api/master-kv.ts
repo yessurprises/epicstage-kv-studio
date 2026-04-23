@@ -20,6 +20,12 @@ const MAX_GUIDE_IMAGES = 4;
 export interface MasterKvOptions {
   provider?: ImageProviderId;
   resolution?: ImageSize;
+  /**
+   * User-edited prompt override. When present, this exact prompt is sent to
+   * the model instead of the auto-built one — applies to both Gemini and
+   * OpenAI branches. References (guide images, CI) are unchanged.
+   */
+  overridePrompt?: { system?: string; user: string };
 }
 
 function guideImagesToParts(guideImages?: Record<string, string>): InlineDataPart[] {
@@ -75,8 +81,58 @@ ${PRINT_SPEC_INSTRUCTION}
 REQUIREMENTS:
 - This is the hero image — highest visual impact
 - Render ONLY the text listed above
+- NO LOGOS, brand marks, emblems, wordmarks, or monograms of any kind. Logos are applied manually in post-production — the artwork must be completely logo-free. CI reference images are for palette and visual style only; do not reproduce the logo itself.
 - Professional print/digital quality`;
 
+  return { system: PRODUCTION_SYSTEM, user };
+}
+
+/**
+ * Build the OpenAI (GPT Image 2) 5-section prompt for the master KV. Pure
+ * function — exposed so the UI can preview exactly what will be sent to
+ * OpenAI when the active version's provider is "openai". Ref counts are
+ * passed in so the reference-role label block matches what the request
+ * will actually attach.
+ */
+export function buildMasterKvOpenAiPrompt(
+  guideline: Guideline,
+  ratio: string,
+  kvName: string,
+  refAnalysis: string | undefined,
+  guideRefCount: number,
+  ciRefCount: number,
+): { system: string; user: string } {
+  const designSystem = extractDesignSystemForProduction(guideline, "kv");
+  const texts: Array<{ label: string; value: string; hint?: string }> = [];
+  if (guideline.event_summary?.name)
+    texts.push({ label: "HEADLINE", value: guideline.event_summary.name });
+  if (guideline.event_summary?.date)
+    texts.push({ label: "DATE", value: guideline.event_summary.date });
+  if (guideline.event_summary?.slogan)
+    texts.push({ label: "SLOGAN", value: guideline.event_summary.slogan });
+  const refRoles = [
+    ...Array(guideRefCount).fill(
+      "Guide sheet — palette, graphic motifs, compositional language",
+    ),
+    ...Array(ciRefCount).fill(
+      "Brand CI — reference ONLY for color palette and visual style. DO NOT draw, trace, or recreate the logo in the output. Artwork must be logo-free.",
+    ),
+  ];
+  const user = buildOpenAiPrompt({
+    scene:
+      "Professional event key visual with bold, memorable atmosphere. Full graphic-motif expression drawn from the attached guide sheets.",
+    subject: `Master Key Visual (${kvName}) — hero image all production variants derive from.`,
+    details: [
+      designSystem,
+      refAnalysis ? `Reference direction: ${refAnalysis}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+    useCase: `Master Key Visual, aspect ratio ${ratio}. Highest visual impact — flat graphic artwork, print/digital ready.`,
+    texts,
+    refRoles,
+    extraConstraints: [PRINT_SPEC_INSTRUCTION],
+  });
   return { system: PRODUCTION_SYSTEM, user };
 }
 
@@ -118,7 +174,9 @@ export async function generateMasterKV(
   guideImages?: Record<string, string>,
   options?: MasterKvOptions,
 ): Promise<string> {
-  const { system, user: userContent } = buildMasterKvPrompt(guideline, ratio, kvName, refAnalysis);
+  const built = buildMasterKvPrompt(guideline, ratio, kvName, refAnalysis);
+  const system = options?.overridePrompt?.system ?? built.system;
+  const userContent = options?.overridePrompt?.user ?? built.user;
   const provider = options?.provider ?? "gemini";
   const resolution: ImageSize = options?.resolution ?? "2K";
 
@@ -128,38 +186,24 @@ export async function generateMasterKV(
     const guideRefs = guideImagesToImageData(guideImages);
     const ciRefs = (ciImages ?? []).slice(0, 3);
     const refs: ImageData[] = [...guideRefs, ...ciRefs];
-    const refRoles = [
-      ...guideRefs.map(
-        () => "Guide sheet — palette, graphic motifs, compositional language",
-      ),
-      ...ciRefs.map(() => "Brand CI — logo and primary colors only"),
-    ];
-    const designSystem = extractDesignSystemForProduction(guideline, "kv");
-    const texts: Array<{ label: string; value: string; hint?: string }> = [];
-    if (guideline.event_summary?.name)
-      texts.push({ label: "HEADLINE", value: guideline.event_summary.name });
-    if (guideline.event_summary?.date)
-      texts.push({ label: "DATE", value: guideline.event_summary.date });
-    if (guideline.event_summary?.slogan)
-      texts.push({ label: "SLOGAN", value: guideline.event_summary.slogan });
-    const prompt = buildOpenAiPrompt({
-      scene:
-        "Professional event key visual with bold, memorable atmosphere. Full graphic-motif expression drawn from the attached guide sheets.",
-      subject: `Master Key Visual (${kvName}) — hero image all production variants derive from.`,
-      details: [
-        designSystem,
-        refAnalysis ? `Reference direction: ${refAnalysis}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n\n"),
-      useCase: `Master Key Visual, aspect ratio ${ratio}. Highest visual impact — flat graphic artwork, print/digital ready.`,
-      texts,
-      refRoles,
-      extraConstraints: [PRINT_SPEC_INSTRUCTION],
-    });
+    let oaSystem: string;
+    let oaPrompt: string;
+    if (options?.overridePrompt) {
+      oaSystem = options.overridePrompt.system ?? PRODUCTION_SYSTEM;
+      oaPrompt = options.overridePrompt.user;
+    } else {
+      ({ system: oaSystem, user: oaPrompt } = buildMasterKvOpenAiPrompt(
+        guideline,
+        ratio,
+        kvName,
+        refAnalysis,
+        guideRefs.length,
+        ciRefs.length,
+      ));
+    }
     return openai.generate({
-      prompt,
-      system,
+      prompt: oaPrompt,
+      system: oaSystem,
       ratio,
       size: resolution,
       refs,

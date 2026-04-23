@@ -72,7 +72,7 @@ const BASELINE_CONSTRAINTS = [
   "no watermark",
   "no extra text beyond EXACT TEXT list",
   "no duplicate text, no misspellings",
-  "no stock-photo overlays or fake brand logos",
+  "NO LOGOS OR BRAND MARKS of any kind — no emblems, wordmarks, monograms, shields, crests, or identifying marks. Logos are applied manually in post-production; the artwork must be logo-free.",
   "no 3D mockup perspective — flat artwork only",
 ];
 

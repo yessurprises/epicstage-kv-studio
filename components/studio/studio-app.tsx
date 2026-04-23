@@ -281,6 +281,20 @@ export default function StudioApp() {
                     }`}
                   >
                     <span className="font-medium">{ver.label}</span>
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ring-1 ${
+                        (ver.provider ?? "gemini") === "openai"
+                          ? "bg-emerald-500/10 text-emerald-300 ring-emerald-500/30"
+                          : "bg-sky-500/10 text-sky-300 ring-sky-500/30"
+                      }`}
+                      title={
+                        (ver.provider ?? "gemini") === "openai"
+                          ? "이 버전은 GPT Image 2로 생성"
+                          : "이 버전은 Gemini로 생성"
+                      }
+                    >
+                      {(ver.provider ?? "gemini") === "openai" ? "GPT" : "GEM"}
+                    </span>
                     <div className="flex gap-0.5">
                       {ver.preview.colors.map((c, i) => (
                         <span key={i} className="inline-block h-3 w-3 rounded-full ring-1 ring-black/20" style={{ background: c }} />

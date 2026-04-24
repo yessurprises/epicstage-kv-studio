@@ -100,6 +100,8 @@ interface StudioStore {
   productions: Production[];
   setProductions: (p: Production[]) => void;
   updateProduction: (id: string, patch: Partial<Production>) => void;
+  /** Phase C — append a 2nd-pass variant immediately after its parent. */
+  addProductionVariant: (variant: Production) => void;
 
   isProcessing: boolean;
   setProcessing: (v: boolean) => void;
@@ -281,6 +283,18 @@ export const useStore = create<StudioStore>((set) => ({
     set((s) => ({
       productions: s.productions.map((p) => (p.id === id ? { ...p, ...patch } : p)),
     })),
+  addProductionVariant: (variant) =>
+    set((s) => {
+      const parentIdx = variant.parentId
+        ? s.productions.findIndex((p) => p.id === variant.parentId)
+        : -1;
+      if (parentIdx === -1) {
+        return { productions: [...s.productions, variant] };
+      }
+      const next = [...s.productions];
+      next.splice(parentIdx + 1, 0, variant);
+      return { productions: next };
+    }),
 
   isProcessing: false,
   setProcessing: (v) => set({ isProcessing: v }),

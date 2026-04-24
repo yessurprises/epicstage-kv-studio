@@ -8,9 +8,14 @@ import {
   upscaleToExactSize,
   type TopazModel,
 } from "./generation";
+import { MASTER_CATALOG } from "./constants";
 import CropModal from "./crop-modal";
+import EditOverlay from "./edit-overlay";
+import BulkOverlayModal from "./bulk-overlay/bulk-overlay-modal";
+import CardNewsModal from "./cardnews/cardnews-modal";
+import EdmModal from "./edm/edm-modal";
 import { downloadAsSvg } from "./export-utils";
-import type { Production } from "./types";
+import type { EditRegion, Production } from "./types";
 import { useStore } from "./use-store";
 import type { VectorizeProvider } from "./vectorize-service";
 
@@ -20,7 +25,7 @@ interface Props {
 }
 
 export default function ProductionCard({ prod, onDelete }: Props) {
-  const { updateProduction } = useStore();
+  const { updateProduction, addProductionVariant } = useStore();
   const activeVersion = useStore((s) =>
     s.versions.find((v) => v.id === s.selectedVersionId),
   );
@@ -28,6 +33,19 @@ export default function ProductionCard({ prod, onDelete }: Props) {
   const [vectorizing, setVectorizing] = useState(false);
   const [topazModel, setTopazModel] = useState<TopazModel>("Standard V2");
   const [cropOpen, setCropOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [cardnewsOpen, setCardnewsOpen] = useState(false);
+  const [edmOpen, setEdmOpen] = useState(false);
+  const catalog = useMemo(
+    () => MASTER_CATALOG.find((c) => c.name === prod.name),
+    [prod.name],
+  );
+  // safeZone[0]만 본다 — 현재 모든 카탈로그 항목은 단일 사각형이고 다중 영역
+  // 운영 사례가 없다. 다중 영역이 필요해지면 effectiveSafeZone을 배열로
+  // 바꾸고 EDM/대량/렌더러 측 호출 위치 4곳을 함께 손봐야 한다.
+  const effectiveSafeZone =
+    prod.userInput?.safeZone?.[0] ?? catalog?.safeZone?.[0];
 
   // 배수(scale) 모드가 기본. "커스텀" 토글 시 임의 W×H 입력이 노출됨.
   const [scale, setScale] = useState<number>(2);
@@ -139,6 +157,64 @@ export default function ProductionCard({ prod, onDelete }: Props) {
     setCropOpen(false);
   }
 
+  async function handleEditSubmit(regions: EditRegion[], globalInstruction: string) {
+    setEditOpen(false);
+    if (!activeVersion || !prod.imageUrl) return;
+    if (regions.length === 0 && !globalInstruction.trim()) return;
+
+    const variantId = `prod_${Date.now()}_edit`;
+    const variant: Production = {
+      ...prod,
+      id: variantId,
+      parentId: prod.id,
+      editRegions: regions,
+      globalEditInstruction: globalInstruction.trim() || undefined,
+      status: "generating",
+      imageUrl: undefined,
+      noTextStatus: undefined,
+      noTextUrl: undefined,
+      noTextError: undefined,
+      upscaleStatus: undefined,
+      upscaleUrl: undefined,
+      upscaleRawUrl: undefined,
+      upscaleTargetW: undefined,
+      upscaleTargetH: undefined,
+      upscaleError: undefined,
+      stale: false,
+      error: undefined,
+    };
+    addProductionVariant(variant);
+
+    const { ciImages, ciBrief, refAnalysis } = useStore.getState();
+    const ci = ciImages.map((img) => ({ mime: img.mime, base64: img.base64 }));
+    const masterKvUrl = activeVersion.masterKv?.imageUrl;
+
+    try {
+      const imageUrl = await generateProductionImage(
+        activeVersion.guideline,
+        { ...prod, catalog, userInput: prod.userInput },
+        ci,
+        masterKvUrl,
+        refAnalysis || undefined,
+        {
+          provider: activeVersion.provider ?? "gemini",
+          ciBrief: ciBrief || undefined,
+          editRequest: {
+            sourceImageUrl: prod.imageUrl,
+            regions,
+            globalInstruction: globalInstruction.trim() || undefined,
+          },
+        },
+      );
+      updateProduction(variantId, { status: "done", imageUrl });
+    } catch (err) {
+      updateProduction(variantId, {
+        status: "error",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   async function handleVectorize() {
     if (!prod.imageUrl) return;
     setVectorizing(true);
@@ -165,6 +241,54 @@ export default function ProductionCard({ prod, onDelete }: Props) {
           )}
         </div>
         <div className="flex items-center gap-2">
+          {prod.parentId && (
+            <span
+              className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-300"
+              title={`원본 ${prod.parentId}에서 파생`}
+            >
+              수정본
+            </span>
+          )}
+          {prod.status === "done" && prod.imageUrl && (
+            <button
+              onClick={() => setEditOpen(true)}
+              className="rounded bg-gray-800 px-2 py-0.5 text-[10px] text-gray-300 hover:bg-gray-700"
+              title="이미지 일부 영역만 다시 그리기"
+            >
+              수정
+            </button>
+          )}
+          {prod.status === "done" &&
+            prod.imageUrl &&
+            catalog?.bulkCsvOverlay && (
+              <button
+                onClick={() => setBulkOpen(true)}
+                className="rounded bg-emerald-600/30 px-2 py-0.5 text-[10px] text-emerald-300 hover:bg-emerald-600/50"
+                title="CSV로 명단을 올려 영역에 이름·직함을 자동 합성한 PNG를 일괄 생성"
+              >
+                대량 제작
+              </button>
+            )}
+          {prod.status === "done" &&
+            prod.imageUrl &&
+            catalog?.cardNewsSlides && (
+              <button
+                onClick={() => setCardnewsOpen(true)}
+                className="rounded bg-indigo-600/30 px-2 py-0.5 text-[10px] text-indigo-300 hover:bg-indigo-600/50"
+                title="첫 슬라이드를 reference로 체이닝하여 일관된 시리즈 카드뉴스를 생성"
+              >
+                카드뉴스 {catalog.cardNewsSlides}장
+              </button>
+            )}
+          {prod.status === "done" && prod.imageUrl && catalog?.edmTemplate && (
+            <button
+              onClick={() => setEdmOpen(true)}
+              className="rounded bg-sky-600/30 px-2 py-0.5 text-[10px] text-sky-300 hover:bg-sky-600/50"
+              title="배경+CTA 하이브리드 EDM HTML 생성 (다크모드 미리보기 포함)"
+            >
+              EDM
+            </button>
+          )}
           {(prod.status === "error" || prod.stale) && prod.status !== "generating" && (
             <button
               onClick={handleRegenerate}
@@ -409,6 +533,41 @@ export default function ProductionCard({ prod, onDelete }: Props) {
           title={`${prod.name} 크롭 — ${prod.upscaleTargetW ?? effectiveW} × ${prod.upscaleTargetH ?? effectiveH} px`}
           onApply={handleCropApply}
           onClose={() => setCropOpen(false)}
+        />
+      )}
+      {prod.imageUrl && (
+        <EditOverlay
+          open={editOpen}
+          imageUrl={prod.imageUrl}
+          onCancel={() => setEditOpen(false)}
+          onSubmit={handleEditSubmit}
+        />
+      )}
+      {prod.imageUrl && catalog?.bulkCsvOverlay && (
+        <BulkOverlayModal
+          open={bulkOpen}
+          templateUrl={prod.imageUrl}
+          catalog={catalog}
+          effectiveSafeZone={effectiveSafeZone}
+          onClose={() => setBulkOpen(false)}
+        />
+      )}
+      {prod.imageUrl && catalog?.cardNewsSlides && (
+        <CardNewsModal
+          open={cardnewsOpen}
+          prod={prod}
+          catalog={catalog}
+          defaultSlideCount={catalog.cardNewsSlides}
+          onClose={() => setCardnewsOpen(false)}
+        />
+      )}
+      {prod.imageUrl && catalog?.edmTemplate && (
+        <EdmModal
+          open={edmOpen}
+          prod={prod}
+          catalog={catalog}
+          effectiveSafeZone={effectiveSafeZone}
+          onClose={() => setEdmOpen(false)}
         />
       )}
     </div>

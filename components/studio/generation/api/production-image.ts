@@ -1,18 +1,23 @@
 import { IMAGE_URL, isLocal } from "../../config";
-import type { Guideline, ImageData, ImageProviderId } from "../../types";
+import type {
+  CatalogItem,
+  EditRegion,
+  Guideline,
+  ImageData,
+  ImageProviderId,
+  ProductionUserInput,
+} from "../../types";
 import { extractDesignSystemForProduction } from "../design-system";
+import { buildEditInstructionsBlock } from "../edit-instructions";
 import {
   extractFirstImage,
   splitDataUrl,
   toInlineDataParts,
   type GeminiResponse,
 } from "../gemini-utils";
-import {
-  PRINT_SPEC_INSTRUCTION,
-  PRODUCTION_SYSTEM,
-  buildOpenAiPrompt,
-} from "../prompts";
-import { getProvider, resolveRatio, type ImageSize } from "../providers";
+import { PRINT_SPEC_INSTRUCTION, PRODUCTION_SYSTEM } from "../prompts";
+import type { ImageSize } from "../providers";
+import { generateProductionImageOpenAI } from "./production-image-openai";
 
 export interface ProductionInput {
   name: string;
@@ -27,16 +32,52 @@ export interface ProductionInput {
   temperature?: number;
   seed?: number;
   overridden?: boolean;
+  /**
+   * Catalog entry that produced this item. Currently consumed only by the
+   * OpenAI branch — its flag set drives prompt shape (display distance, safe
+   * zones, repeat pattern, logo allowance, etc.). Gemini path ignores it.
+   */
+  catalog?: CatalogItem;
+  /** UI-supplied per-generation input (custom text, safe zone, direction, …). */
+  userInput?: ProductionUserInput;
 }
 
 export interface ProductionOptions {
   provider?: ImageProviderId;
+  /**
+   * How to interpret `masterKvUrl` when present:
+   * - `"kv"` (default) — treat the attached image as the master KV. The model
+   *   pulls palette/motifs/typography mood and recomposes for a new artifact.
+   * - `"previous-slide"` — used by cardnews chaining. The attached image is
+   *   the previous slide in the same series; the model must preserve the same
+   *   layout/grid/color and only swap text/details to the new slide content.
+   *   Forbids the "recompose for new aspect" KV instruction.
+   */
+  referenceMode?: "kv" | "previous-slide";
   /**
    * Text-only CI brief (from `analyzeCi`). OpenAI branch merges this into
    * the prompt instead of attaching the CI image — prevents `/images/edits`
    * from reproducing the logo in variants. Gemini branch ignores this.
    */
   ciBrief?: string;
+  /**
+   * CI reference image. Attached to the OpenAI call only when the catalog
+   * item is `logoCentric` (e.g. company 휘장). Other items deliberately do NOT
+   * receive a logo image — see the rationale in `production-image-openai.ts`.
+   */
+  ciReferenceImage?: ImageData;
+  /**
+   * Phase C — when set, the call is a 2nd-pass edit. The source image is
+   * attached as the primary reference and an EDIT INSTRUCTIONS block listing
+   * each rectangle + per-region instruction is appended to the prompt. Master
+   * KV is dropped (the source image carries the layout) but design system /
+   * texts are still emitted for context.
+   */
+  editRequest?: {
+    sourceImageUrl: string;
+    regions: EditRegion[];
+    globalInstruction?: string;
+  };
 }
 
 const GEMINI_SUPPORTED_RATIOS = new Set([
@@ -93,8 +134,24 @@ export async function generateProductionImage(
   if (prod.headline) textLines.push(`- HEADLINE: "${prod.headline}"`);
   if (prod.subtext) textLines.push(`- SUBTEXT: "${prod.subtext}"`);
 
-  const kvRef = masterKvUrl
-    ? `\nMASTER KV REFERENCE (attached image): Extract ALL visual elements — color palette, graphic motifs, background style, typography mood, compositional language — and apply them faithfully to this ${prod.ratio} format. Recompose the layout for the new dimensions. Do NOT invent new design elements beyond what is in the KV.`
+  const editRequest = options?.editRequest;
+
+  // 2nd-pass edit: the source image is the canvas; do NOT also describe the
+  // master KV as an attached reference — it isn't attached in edit mode (see
+  // `guideImageUrls` below) and the KV brief would mis-direct the model away
+  // from preserving the source.
+  const referenceMode = options?.referenceMode ?? "kv";
+  let kvRef = "";
+  if (!editRequest && masterKvUrl) {
+    kvRef =
+      referenceMode === "previous-slide"
+        ? `\nPREVIOUS SLIDE REFERENCE (attached image): This is the previous slide in the SAME cardnews series. Preserve its EXACT layout grid, color palette, typography hierarchy, and compositional language. Render this as the next slide in the series — change ONLY the text content (HEADLINE/SUBTEXT) and the per-slide visual details listed below. Do NOT invent a new layout, do NOT shift the color scheme, do NOT change typography weights or background treatment.`
+        : `\nMASTER KV REFERENCE (attached image): Extract ALL visual elements — color palette, graphic motifs, background style, typography mood, compositional language — and apply them faithfully to this ${prod.ratio} format. Recompose the layout for the new dimensions. Do NOT invent new design elements beyond what is in the KV.`;
+  }
+
+  const editBlock = editRequest
+    ? "\n\n" +
+      buildEditInstructionsBlock(editRequest.regions, editRequest.globalInstruction)
     : "";
 
   const userContent = `Professional event graphic design. Production-ready.
@@ -125,72 +182,46 @@ REQUIREMENTS:
 - NO LOGOS, brand marks, emblems, wordmarks, or monograms of any kind. Logos are applied manually in post-production — the artwork must be completely logo-free. CI reference images are for palette and visual style only; do not reproduce the logo itself.
 - Professional print/digital quality
 - No placeholder text
-- Match the design system and master KV precisely`;
+- Match the design system and master KV precisely${editBlock}`;
 
   const provider = options?.provider ?? "gemini";
 
   if (provider === "openai") {
-    const openai = getProvider("openai");
-    if (!openai) throw new Error("OpenAI provider not available");
-    const bucket: ImageSize = (prod.imageSize as ImageSize) ?? "2K";
-    const resolved = resolveRatio(prod.ratio, bucket);
-    if (resolved.clamped && typeof console !== "undefined") {
-      console.warn(
-        `[production-image] OpenAI aspect clamped: ${prod.ratio} → ${resolved.effectiveRatio} (API limit 1:3..3:1) [${prod.name}]`,
-      );
-    }
-    // CI is passed as a text brief (`options.ciBrief`) rather than attached
-    // to refs — attaching the logo to `/images/edits` causes it to be
-    // reproduced in variants. Only the master KV is a legitimate visual
-    // ref here (it IS meant to be compositionally inherited).
-    const refs: ImageData[] = [];
-    const refRoles: string[] = [];
-    if (masterKvUrl) {
-      const split = splitDataUrl(masterKvUrl);
-      if (split) {
-        refs.push({ mime: split.mime, base64: split.base64 });
-        refRoles.push(
-          "Master KV — preserve palette, graphic motifs, typography mood; recompose for this aspect ratio",
-        );
-      }
-    }
-    const texts: Array<{ label: string; value: string; hint?: string }> = [];
-    if (prod.headline) texts.push({ label: "HEADLINE", value: prod.headline });
-    if (prod.subtext) texts.push({ label: "SUBTEXT", value: prod.subtext });
-    const ciBlock = options?.ciBrief?.trim()
-      ? `BRAND CI SYSTEM (text-only brief — no logo image is attached):\n${options.ciBrief.trim()}\nUse these palette/tone/graphic-character cues. DO NOT draw, invent, or render any logo, wordmark, emblem, or identifying mark.`
-      : "";
-    const detailBlocks = [
-      designSystem,
-      ciBlock,
-      prod.imagePrompt ? `Visual direction: ${prod.imagePrompt}` : "",
-      prod.layoutNote ? `Layout: ${prod.layoutNote}` : "",
-      refAnalysis ? `Reference direction: ${refAnalysis}` : "",
-    ].filter(Boolean);
-    const extraConstraints = [PRINT_SPEC_INSTRUCTION];
-    if (prod.renderInstruction) extraConstraints.push(prod.renderInstruction);
-    const prompt = buildOpenAiPrompt({
-      scene: masterKvUrl
-        ? "Professional event graphic derived from the attached master KV — inherit its atmosphere, palette, and motif language."
-        : "Professional event graphic with coherent atmosphere drawn from the design system.",
-      subject: `${prod.name} — production-ready flat graphic artwork.`,
-      details: detailBlocks.join("\n\n"),
-      useCase: `${prod.name}, aspect ratio ${resolved.effectiveRatio}. Production-ready print/digital output.`,
-      texts,
-      refRoles,
-      extraConstraints,
-    });
-    return openai.generate({
-      prompt,
-      system: PRODUCTION_SYSTEM,
-      ratio: resolved.effectiveRatio,
-      size: bucket,
-      refs,
+    return generateProductionImageOpenAI({
+      guideline,
+      prod: {
+        name: prod.name,
+        ratio: prod.ratio,
+        category: prod.category,
+        headline: prod.headline,
+        subtext: prod.subtext,
+        layoutNote: prod.layoutNote,
+        imagePrompt: prod.imagePrompt,
+        renderInstruction: prod.renderInstruction,
+        imageSize: (prod.imageSize as ImageSize) ?? "2K",
+        catalog: prod.catalog,
+        userInput: prod.userInput,
+      },
+      masterKvUrl,
+      referenceMode,
+      refAnalysis,
+      ciBrief: options?.ciBrief,
+      ciReferenceImage: options?.ciReferenceImage,
+      editRequest,
     });
   }
 
   const url = IMAGE_URL();
   const generationConfig = buildGenerationConfig(prod);
+
+  // Phase C — when an edit request is present, the source image is the
+  // primary reference. Master KV is dropped because the source already
+  // encodes the layout we want to preserve.
+  const guideImageUrls = editRequest
+    ? [editRequest.sourceImageUrl]
+    : masterKvUrl
+      ? [masterKvUrl]
+      : [];
 
   if (isLocal()) {
     const resp = await fetch(url, {
@@ -199,8 +230,8 @@ REQUIREMENTS:
       body: JSON.stringify({
         prompt: userContent,
         system: PRODUCTION_SYSTEM,
-        ciImages: ciImages ?? [],
-        guideImageUrls: masterKvUrl ? [masterKvUrl] : [],
+        ciImages: editRequest ? [] : (ciImages ?? []),
+        guideImageUrls,
         generationConfig,
       }),
     });
@@ -211,15 +242,11 @@ REQUIREMENTS:
   }
 
   const parts = [
-    ...toInlineDataParts(ciImages ?? [], 2),
-    ...(masterKvUrl
-      ? (() => {
-          const split = splitDataUrl(masterKvUrl);
-          return split
-            ? [{ inlineData: { mimeType: split.mime, data: split.base64 } }]
-            : [];
-        })()
-      : []),
+    ...(editRequest ? [] : toInlineDataParts(ciImages ?? [], 2)),
+    ...(guideImageUrls
+      .map((u) => splitDataUrl(u))
+      .filter((s): s is NonNullable<ReturnType<typeof splitDataUrl>> => Boolean(s))
+      .map((s) => ({ inlineData: { mimeType: s.mime, data: s.base64 } }))),
     { text: `${PRODUCTION_SYSTEM}\n\n---\n\n${userContent}` },
   ];
 

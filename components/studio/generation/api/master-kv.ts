@@ -8,12 +8,12 @@ import {
   type GeminiResponse,
   type InlineDataPart,
 } from "../gemini-utils";
+import { PRINT_SPEC_INSTRUCTION, PRODUCTION_SYSTEM } from "../prompts";
+import type { ImageSize } from "../providers";
 import {
-  PRINT_SPEC_INSTRUCTION,
-  PRODUCTION_SYSTEM,
-  buildOpenAiPrompt,
-} from "../prompts";
-import { getProvider, resolveRatio, type ImageSize } from "../providers";
+  buildMasterKvOpenAiPromptString,
+  generateMasterKVOpenAI,
+} from "./master-kv-openai";
 
 const MAX_GUIDE_IMAGES = 4;
 
@@ -95,16 +95,10 @@ REQUIREMENTS:
 }
 
 /**
- * Build the OpenAI (GPT Image 2) 5-section prompt for the master KV. Pure
- * function — exposed so the UI can preview exactly what will be sent to
- * OpenAI when the active version's provider is "openai".
- *
- * CI is NOT attached as a reference image for OpenAI — the `/images/edits`
- * endpoint treats attached pixels as an editing source and reliably
- * reproduces the logo no matter how strong the text constraint is. Instead,
- * the CI is pre-analyzed into a short textual brief (`ciBrief`, produced by
- * `analyzeCi`) and merged into the Details section so palette/tone still
- * influence the output without any logo pixels entering the request.
+ * Build the OpenAI (GPT Image 2) prompt for the master KV. Kept as a thin
+ * wrapper around `buildMasterKvOpenAiPromptString` (in `master-kv-openai.ts`)
+ * so the UI preview uses the same V2 GPT Image 2 template the actual
+ * generate call uses — no drift between preview and wire.
  */
 export function buildMasterKvOpenAiPrompt(
   guideline: Guideline,
@@ -114,50 +108,14 @@ export function buildMasterKvOpenAiPrompt(
   guideRefCount: number,
   ciBrief?: string,
 ): { system: string; user: string } {
-  const designSystem = extractDesignSystemForProduction(guideline);
-  const texts: Array<{ label: string; value: string; hint?: string }> = [];
-  if (guideline.event_summary?.name)
-    texts.push({ label: "HEADLINE", value: guideline.event_summary.name });
-  if (guideline.event_summary?.date)
-    texts.push({ label: "DATE", value: guideline.event_summary.date });
-  if (guideline.event_summary?.slogan)
-    texts.push({ label: "SLOGAN", value: guideline.event_summary.slogan });
-  const refRoles = Array(guideRefCount).fill(
-    "Guide sheet — palette, graphic motifs, compositional language",
-  );
-  const ciBlock = ciBrief?.trim()
-    ? `BRAND CI SYSTEM (text-only brief — no logo image is attached):\n${ciBrief.trim()}\nUse these palette/tone/graphic-character cues to align the artwork with the brand. DO NOT draw, invent, or render any logo, wordmark, emblem, or identifying mark.`
-    : "";
-  const user = buildOpenAiPrompt({
-    scene:
-      "Professional event key visual with bold, memorable atmosphere. Full graphic-motif expression drawn from the attached guide sheets.",
-    subject: `Master Key Visual (${kvName}) — hero image all production variants derive from.`,
-    details: [
-      designSystem,
-      ciBlock,
-      refAnalysis ? `Reference direction: ${refAnalysis}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n\n"),
-    useCase: `Master Key Visual, aspect ratio ${ratio}. Highest visual impact — flat graphic artwork, print/digital ready.`,
-    texts,
-    refRoles,
-    extraConstraints: [PRINT_SPEC_INSTRUCTION],
+  return buildMasterKvOpenAiPromptString({
+    guideline,
+    ratio,
+    kvName,
+    refAnalysis,
+    guideRefCount,
+    ciBrief,
   });
-  return { system: PRODUCTION_SYSTEM, user };
-}
-
-function guideImagesToImageData(guideImages?: Record<string, string>): ImageData[] {
-  if (!guideImages) return [];
-  const out: ImageData[] = [];
-  for (const url of Object.values(guideImages)) {
-    if (!url) continue;
-    const split = splitDataUrl(url);
-    if (!split) continue;
-    out.push({ mime: split.mime, base64: split.base64 });
-    if (out.length >= MAX_GUIDE_IMAGES) break;
-  }
-  return out;
 }
 
 const IMAGE_SIZE_TO_GEMINI: Record<ImageSize, string> = {
@@ -192,41 +150,15 @@ export async function generateMasterKV(
   const resolution: ImageSize = options?.resolution ?? "2K";
 
   if (provider === "openai") {
-    const openai = getProvider("openai");
-    if (!openai) throw new Error("OpenAI provider not available");
-    const guideRefs = guideImagesToImageData(guideImages);
-    // CI images are intentionally NOT attached to OpenAI refs — the
-    // /images/edits endpoint reproduces attached logos. `ciBrief` carries
-    // the palette/tone signal as text instead. `ciImages` still flows into
-    // the Gemini branch below untouched.
-    const refs: ImageData[] = [...guideRefs];
-    let oaSystem: string;
-    let oaPrompt: string;
-    const resolved = resolveRatio(ratio, resolution);
-    if (resolved.clamped && typeof console !== "undefined") {
-      console.warn(
-        `[master-kv] OpenAI aspect clamped: ${ratio} → ${resolved.effectiveRatio} (API limit 1:3..3:1)`,
-      );
-    }
-    if (options?.overridePrompt) {
-      oaSystem = options.overridePrompt.system ?? PRODUCTION_SYSTEM;
-      oaPrompt = options.overridePrompt.user;
-    } else {
-      ({ system: oaSystem, user: oaPrompt } = buildMasterKvOpenAiPrompt(
-        guideline,
-        resolved.effectiveRatio,
-        kvName,
-        refAnalysis,
-        guideRefs.length,
-        options?.ciBrief,
-      ));
-    }
-    return openai.generate({
-      prompt: oaPrompt,
-      system: oaSystem,
-      ratio: resolved.effectiveRatio,
-      size: resolution,
-      refs,
+    return generateMasterKVOpenAI({
+      guideline,
+      ratio,
+      kvName,
+      refAnalysis,
+      guideImages,
+      ciBrief: options?.ciBrief,
+      resolution,
+      overridePrompt: options?.overridePrompt,
     });
   }
 

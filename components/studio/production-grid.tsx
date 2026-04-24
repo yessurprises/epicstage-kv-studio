@@ -156,12 +156,15 @@ export default function ProductionGrid() {
       temperature: planItem.temperature,
       seed: planItem.seed,
       overridden: planItem.overridden,
+      userInput: planItem.userInput,
       fullPrompt: "",
     }));
 
     if (newProds.length > 0) {
       setProductions([...productions, ...newProds]);
     }
+
+    const catalogByName = new Map(MASTER_CATALOG.map((c) => [c.name, c]));
 
     addLog(`${newProds.length}종 이미지 생성 시작 (2개씩)`);
 
@@ -194,15 +197,19 @@ export default function ProductionGrid() {
           const { updateProduction: up } = useStore.getState();
           up(prod.id, { status: "generating" });
           try {
+            const catalog = catalogByName.get(prod.name);
+            const ciReferenceImage =
+              catalog?.logoCentric && ci[0] ? ci[0] : undefined;
             const imageUrl = await generateProductionImage(
               activeVersion.guideline,
-              prod,
+              { ...prod, catalog, userInput: prod.userInput },
               ci,
               masterKvUrl,
               refAnalysis || undefined,
               {
                 provider: activeVersion.provider ?? "gemini",
                 ciBrief: ciBrief || undefined,
+                ciReferenceImage,
               },
             );
             up(prod.id, { status: "done", imageUrl });

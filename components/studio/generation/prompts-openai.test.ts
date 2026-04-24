@@ -255,6 +255,6 @@ describe("buildMasterKvPromptOpenAI", () => {
     });
     expect(out).toContain("Artifact: Master Key Visual — Poster 1:1");
     expect(out).toMatch(/hero master key visual/);
-    expect(out).toMatch(/54 production variants will be derived/);
+    expect(out).toMatch(/all production variants will be derived/);
   });
 });

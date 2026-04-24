@@ -13,7 +13,6 @@ interface AutosaveSnapshot {
   projectId: string;
   lastModifiedAt: number;
   step: number;
-  tier: string;
   eventInfo: string;
   styleOverride: string;
   versions: StoreState["versions"];
@@ -37,7 +36,6 @@ function snapshot(): AutosaveSnapshot {
     projectId: AUTOSAVE_ID,
     lastModifiedAt: Date.now(),
     step: s.step,
-    tier: s.tier,
     eventInfo: s.eventInfo,
     styleOverride: s.styleOverride,
     versions: s.versions,
@@ -134,7 +132,6 @@ export function useRestorableAutosave(): {
       if (!saved) return;
       const s = useStore.getState();
       s.setStep(saved.step as 1 | 2 | 3 | 4);
-      s.setTier(saved.tier);
       s.setEventInfo(saved.eventInfo);
       s.setStyleOverride(saved.styleOverride ?? "");
       s.setRefAnalysis(saved.refAnalysis ?? "");

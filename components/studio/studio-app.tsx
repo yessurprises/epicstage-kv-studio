@@ -10,14 +10,13 @@ import GuidelineViewer from "./guideline-viewer";
 import KvGenerator from "./kv-generator";
 import ProductionGrid from "./production-grid";
 import ReferenceSearch from "./reference-search";
-import TierSelector from "./tier-selector";
 import { downloadAsZip, generateGuidelinePdf } from "./export-utils";
 import { useAutosave, useRestorableAutosave } from "./use-autosave";
 import { useStore } from "./use-store";
 
 export default function StudioApp() {
   const {
-    step, setStep, tier, setTier,
+    step, setStep,
     eventInfo, setEventInfo, styleOverride,
     selectedRefs, toggleRef,
     versions, activeVersionId, selectedVersionId,
@@ -157,19 +156,6 @@ export default function StudioApp() {
       {/* Step 1: Input */}
       {step === 1 && (
         <div className="space-y-5">
-          {/* Tier selector with label */}
-          <div>
-            <div className="mb-3 flex items-center gap-2">
-              <h2 className="font-nacelle text-sm font-semibold text-white">서비스 티어 선택</h2>
-              {tier && (
-                <span className="rounded-full bg-indigo-500/10 px-2.5 py-0.5 text-[10px] font-medium text-indigo-400 ring-1 ring-indigo-500/20">
-                  {tier === "self" ? "셀프" : tier === "basic" ? "기본" : "풀"} 선택됨
-                </span>
-              )}
-            </div>
-            <TierSelector selected={tier} onSelect={setTier} />
-          </div>
-
           <div className="grid gap-5 lg:grid-cols-2">
             <EventInput value={eventInfo} onChange={setEventInfo} />
             <ReferenceSearch selectedRefs={selectedRefs} onSelectRef={toggleRef} />

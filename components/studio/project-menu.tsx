@@ -145,7 +145,6 @@ function getSerializableState() {
   const s = useStore.getState();
   return {
     eventInfo: s.eventInfo,
-    tier: s.tier,
     step: s.step,
     styleOverride: s.styleOverride,
     versions: s.versions,
@@ -168,7 +167,6 @@ function restoreState(saved: any) {
   const s = useStore.getState();
   // 기존 상태 초기화
   s.setEventInfo(saved.eventInfo || "");
-  s.setTier(saved.tier || "self");
   s.setStyleOverride(saved.styleOverride || "");
   s.setRefAnalysis(saved.refAnalysis || "");
   s.setCiBrief(saved.ciBrief || "");

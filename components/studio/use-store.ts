@@ -33,9 +33,6 @@ interface StudioStore {
   step: 1 | 2 | 3 | 4;
   setStep: (s: 1 | 2 | 3 | 4) => void;
 
-  tier: string;
-  setTier: (t: string) => void;
-
   eventInfo: string;
   setEventInfo: (v: string) => void;
   styleOverride: string;
@@ -129,9 +126,6 @@ function timeStr() {
 export const useStore = create<StudioStore>((set) => ({
   step: 1,
   setStep: (s) => set({ step: s }),
-
-  tier: "self",
-  setTier: (t) => set({ tier: t }),
 
   eventInfo: "",
   setEventInfo: (v) => set({ eventInfo: v }),
